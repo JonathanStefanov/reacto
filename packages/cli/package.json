@@ -11,6 +11,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "test": "vitest run --config ../../vitest.config.ts --passWithNoTests",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
@@ -23,7 +24,8 @@
     "ora": "^8.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
   },
   "files": ["dist"],
   "license": "MIT"

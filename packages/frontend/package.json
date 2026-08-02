@@ -1,7 +1,7 @@
 {
-  "name": "@reacto/server",
+  "name": "@reacto/frontend",
   "version": "0.1.0",
-  "description": "Reacto HTTP server — Express-like with auto-generated API routes",
+  "description": "Reacto Frontend — Auto-generated React hooks, CRUD pages, and admin panel",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -19,25 +19,21 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@reacto/core": "*",
-    "express": "^5.0.0",
-    "cors": "^2.8.5",
-    "helmet": "^8.0.0",
-    "compression": "^1.7.4",
-    "express-rate-limit": "^7.0.0",
-    "jsonwebtoken": "^9.0.0",
-    "bcryptjs": "^2.4.3",
-    "zod": "^3.23.0"
+    "@reacto/core": "*"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
-    "@types/cors": "^2.8.0",
-    "@types/compression": "^1.7.0",
-    "@types/jsonwebtoken": "^9.0.0",
-    "@types/bcryptjs": "^2.4.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "typescript": "^5.5.0",
     "vitest": "^3.0.0"
   },
   "files": ["dist"],
+  "keywords": ["react", "admin", "crud", "hooks", "frontend"],
   "license": "MIT"
 }
