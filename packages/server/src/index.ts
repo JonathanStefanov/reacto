@@ -103,3 +103,6 @@ export { authMiddleware, requireRole, signJwt, verifyJwt, hashPassword, verifyPa
 export type { JwtPayload, AuthOptions } from './middleware/auth.js';
 export { ReactoWebSocketServer, attachWebSocket, getWebSocketServer } from './websocket/index.js';
 export type { WsMessage, WsBroadcast, WsClient, WebSocketServerOptions } from './websocket/index.js';
+export { uploadMiddleware, uploadAndStore, validateFile } from './middleware/upload.js';
+export type { UploadOptions, UploadedFile } from './middleware/upload.js';
+export { createFileRoutes } from './routes/files.js';

@@ -108,6 +108,16 @@ export {
 
 export { fieldTypeToPgType, fieldToColumn, columnToSql } from './fields/index.js';
 
+// ─── Storage ──────────────────────────────────────────────────────────────────
+
+export {
+  LocalStorage,
+  S3Storage,
+  setDefaultStorage,
+  getDefaultStorage,
+} from './storage/index.js';
+export type { StoredFile, LocalStorageOptions, S3StorageOptions } from './storage/index.js';
+
 // ─── Signals ──────────────────────────────────────────────────────────────────
 
 export { runSignal, getSignals, clearSignals } from './signals/index.js';
