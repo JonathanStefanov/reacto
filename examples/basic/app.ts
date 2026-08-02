@@ -1,11 +1,12 @@
 /**
- * Reacto Example App — Full-featured blog
+ * Reacto Example App — Full-featured blog with real-time updates
  *
  * Features demonstrated:
  *   - Models with relations (@ForeignKey, @OneToMany)
  *   - Field validators (required, minLength, email)
  *   - Signals (pre_save, post_save)
  *   - Auth middleware (JWT)
+ *   - WebSocket real-time subscriptions
  *   - Eager loading (.with())
  *   - Nested routes
  *   - Cascade delete
@@ -26,7 +27,6 @@ import {
   postSave,
   required,
   minLength,
-  maxLength,
   email as emailValidator,
 } from '@reacto/core';
 import type { Id } from '@reacto/core';
@@ -53,9 +53,6 @@ class User extends Model {
   @Field({ type: 'boolean', default: true })
   isActive: boolean;
 
-  @Field({ type: 'boolean', default: false })
-  isStaff: boolean;
-
   @OneToMany(() => Post, { mappedBy: 'author' })
   posts: Post[];
 }
@@ -77,19 +74,11 @@ class Post extends Model {
 
 // ─── Signals ──────────────────────────────────────────────────────────────────
 
-// Hash password before saving (in real app, use bcrypt)
 preSave(User, async (user) => {
   const u = user as any;
   if (u.password && !u.password.startsWith('$2b$')) {
     u.password = `hashed_${u.password}`;
-    console.log(`[Signal] Password hashed for user: ${u.username}`);
   }
-});
-
-// Log after saving
-postSave(User, async (user) => {
-  const u = user as any;
-  console.log(`[Signal] User saved: ${u.username} (id: ${u.id})`);
 });
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -107,16 +96,28 @@ async function main() {
   const migrations = await generateMigrations();
   await applyMigrations(migrations);
 
-  const app = createServer({
+  const JWT_SECRET = process.env.JWT_SECRET ?? 'super-secret-key-change-me';
+
+  // Create server with WebSocket enabled
+  const { app, server, ws } = createServer({
     basePath: '/api',
     cors: { origin: '*' },
+    websocket: {
+      authenticate: async (token) => {
+        try {
+          const payload = require('jsonwebtoken').verify(token, JWT_SECRET);
+          return { userId: payload.sub };
+        } catch {
+          return null;
+        }
+      },
+    },
   });
 
-  // Add auth middleware
-  const JWT_SECRET = process.env.JWT_SECRET ?? 'super-secret-key-change-me';
+  // Auth middleware
   app.use(authMiddleware({ secret: JWT_SECRET }));
 
-  // Login endpoint (generates JWT)
+  // Login endpoint
   app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -131,24 +132,24 @@ async function main() {
     }
   });
 
-  // Protected endpoint example
+  // Protected endpoint
   app.get('/api/auth/me', requireAuth(), async (req, res) => {
     const user = await ModelManager.objects(User).get({ id: Number(req.user!.sub) });
     res.json({ user: user.toJSON() });
   });
 
+  // Start server
   const port = parseInt(process.env.PORT ?? '3000');
-  app.listen(port, () => {
+  server.listen(port, () => {
     console.log(`\n⚡ Reacto example running at http://localhost:${port}`);
-    console.log(`\n📡 API Endpoints:`);
-    console.log(`   POST   /api/auth/login         → Login (get JWT)`);
-    console.log(`   GET    /api/auth/me             → Current user (protected)`);
-    console.log(`   GET    /api/users?with=posts    → List users with posts`);
+    console.log(`   WebSocket: ws://localhost:${port}/ws`);
+    console.log(`\n📡 REST API:`);
     console.log(`   GET    /api/posts?with=author   → List posts with author`);
     console.log(`   GET    /api/users/:id/posts     → User's posts`);
-    console.log(`   POST   /api/users/:id/posts     → Create post for user`);
-    console.log(`   GET    /api/posts/:id/author    → Post's author`);
-    console.log(`   DELETE /api/users/:id           → Cascade delete\n`);
+    console.log(`   POST   /api/auth/login          → Login (get JWT)`);
+    console.log(`\n🔌 WebSocket (connect with ?token=JWT):`);
+    console.log(`   Subscribe: { "type": "subscribe", "channel": "posts" }`);
+    console.log(`   Events:    { "type": "created", "model": "Post", "data": {...} }\n`);
   });
 }
 

@@ -151,6 +151,46 @@ app.get('/api/admin', requireAuth(), handler);
 const token = signJwt({ sub: user.id }, 'your-secret', 86400);
 ```
 
+## WebSocket (Real-time)
+
+Real-time subscriptions via WebSocket:
+
+```typescript
+import { createServer } from '@reacto/server';
+
+// Enable WebSocket when creating server
+const { app, server, ws } = createServer({ websocket: true });
+
+// WebSocket auto-broadcasts model changes to subscribers
+```
+
+**Client (React):**
+```tsx
+import { useSubscription } from '@reacto/frontend';
+
+function LiveFeed() {
+  const { data, connected } = useSubscription('posts', { token: 'jwt-token' });
+
+  return (
+    <div>
+      <span>{connected ? '\u0001f7e2 Live' : '\u0001f534 Offline'}</span>
+      {data.map(post => <div key={post.id}>{post.title}</div>)}
+    </div>
+  );
+}
+```
+
+**Protocol:**
+```json
+// Subscribe
+{ "type": "subscribe", "channel": "posts" }
+
+// Receive events
+{ "type": "created", "model": "Post", "id": 1, "data": { ... }, "timestamp": "..." }
+{ "type": "updated", "model": "Post", "id": 1, "data": { ... } }
+{ "type": "deleted", "model": "Post", "id": 1 }
+```
+
 ## Auto-generated API
 
 Your models automatically get REST endpoints:

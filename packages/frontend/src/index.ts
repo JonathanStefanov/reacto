@@ -9,6 +9,8 @@ export type { ModelLike, FieldMeta } from './types.js';
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
 export { useList, useGet, useCreate, useUpdate, useDelete } from './hooks/useModel.js';
+export { useSubscription, useMultiSubscription } from './hooks/useSubscription.js';
+export type { SubscriptionOptions, SubscriptionResult } from './hooks/useSubscription.js';
 
 // ─── Pages ────────────────────────────────────────────────────────────────────
 

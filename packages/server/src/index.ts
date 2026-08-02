@@ -1,11 +1,11 @@
 /**
- * @reacto/server — HTTP server with auto-generated API routes
+ * @reacto/server — HTTP server with auto-generated API routes and WebSocket
  *
  * @example
  * ```ts
  * import { createServer } from '@reacto/server';
  *
- * const server = createServer();
+ * const { app, server, ws } = createServer({ websocket: true });
  * server.listen(3000);
  * ```
  */
@@ -14,10 +14,13 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import { createServer as createHttpServer } from 'http';
 import { getAllModels, autoConfigure } from '@reacto/core';
 import { generateCrudRoutes } from './routes/crud.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { requestLogger } from './middleware/logger.js';
+import { ReactoWebSocketServer, enableAutoBroadcast } from './websocket/index.js';
+import type { WebSocketServerOptions } from './websocket/index.js';
 
 export interface ServerOptions {
   cors?: cors.CorsOptions;
@@ -29,12 +32,20 @@ export interface ServerOptions {
   compression?: boolean;
   logger?: boolean;
   basePath?: string;
+  /** Enable WebSocket server */
+  websocket?: boolean | WebSocketServerOptions;
+}
+
+export interface ServerResult {
+  app: express.Express;
+  server: ReturnType<typeof createHttpServer>;
+  ws: ReactoWebSocketServer | null;
 }
 
 /**
- * Create a Reacto HTTP server with auto-generated CRUD routes.
+ * Create a Reacto HTTP server with auto-generated CRUD routes and optional WebSocket.
  */
-export function createServer(options: ServerOptions = {}): express.Express {
+export function createServer(options: ServerOptions = {}): ServerResult {
   // Auto-configure database from environment
   autoConfigure();
 
@@ -90,19 +101,38 @@ export function createServer(options: ServerOptions = {}): express.Express {
   app.use(notFoundHandler);
   app.use(errorHandler);
 
-  return app;
+  // ─── HTTP Server + WebSocket ─────────────────────────────────────────────
+
+  const server = createHttpServer(app);
+  let ws: ReactoWebSocketServer | null = null;
+
+  if (options.websocket) {
+    const wsOptions = typeof options.websocket === 'object' ? options.websocket : {};
+    ws = new ReactoWebSocketServer(server, wsOptions);
+
+    // Auto-broadcast model changes
+    for (const [, modelClass] of models) {
+      enableAutoBroadcast(modelClass);
+      console.log(`[Reacto WS] Auto-broadcasting: ${modelClass.tableName}`);
+    }
+  }
+
+  return { app, server, ws };
 }
 
 /**
  * Create and start the server.
  */
-export async function startServer(port: number = 3000, options: ServerOptions = {}): Promise<express.Express> {
-  const app = createServer(options);
+export async function startServer(port: number = 3000, options: ServerOptions = {}): Promise<ServerResult> {
+  const result = createServer(options);
 
   return new Promise((resolve) => {
-    app.listen(port, () => {
+    result.server.listen(port, () => {
       console.log(`[Reacto] Server running on http://localhost:${port}`);
-      resolve(app);
+      if (result.ws) {
+        console.log(`[Reacto] WebSocket running on ws://localhost:${port}/ws`);
+      }
+      resolve(result);
     });
   });
 }
@@ -119,3 +149,11 @@ export {
   verifyJwt,
 } from './middleware/auth.js';
 export type { AuthConfig, JwtPayload } from './middleware/auth.js';
+export {
+  ReactoWebSocketServer,
+  createWebSocketServer,
+  attachWebSocket,
+  getWebSocketServer,
+  enableAutoBroadcast,
+} from './websocket/index.js';
+export type { WsMessage, WsBroadcast, WsClient, WebSocketServerOptions } from './websocket/index.js';
