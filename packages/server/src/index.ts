@@ -1,5 +1,5 @@
 /**
- * @reacto/server — HTTP server with auto-generated API routes
+ * @reacto/server — HTTP server with auto-generated API routes + WebSocket
  */
 import express from 'express';
 import cors from 'cors';
@@ -11,26 +11,28 @@ import { getAllModels, autoConfigure } from '@reacto/core';
 import { generateCrudRoutes } from './routes/crud.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { requestLogger } from './middleware/logger.js';
+import { ReactoWebSocketServer } from './websocket/index.js';
+import type { WebSocketServerOptions } from './websocket/index.js';
 
 export interface ServerOptions {
   cors?: cors.CorsOptions;
-  rateLimit?: {
-    windowMs?: number;
-    max?: number;
-  };
+  rateLimit?: { windowMs?: number; max?: number };
   helmet?: boolean;
   compression?: boolean;
   logger?: boolean;
   basePath?: string;
+  /** Enable WebSocket server */
+  websocket?: boolean | WebSocketServerOptions;
 }
 
 export interface ServerResult {
   app: express.Express;
   server: ReturnType<typeof createHttpServer>;
+  ws: ReactoWebSocketServer | null;
 }
 
 /**
- * Create a Reacto HTTP server with auto-generated CRUD routes.
+ * Create a Reacto HTTP server with auto-generated CRUD routes + optional WebSocket.
  */
 export function createServer(options: ServerOptions = {}): ServerResult {
   autoConfigure();
@@ -72,7 +74,15 @@ export function createServer(options: ServerOptions = {}): ServerResult {
 
   const server = createHttpServer(app);
 
-  return { app, server };
+  // WebSocket
+  let ws: ReactoWebSocketServer | null = null;
+  if (options.websocket) {
+    const wsOptions = typeof options.websocket === 'object' ? options.websocket : {};
+    ws = new ReactoWebSocketServer(server, wsOptions);
+    console.log(`[Reacto] WebSocket running on ws://localhost:${wsOptions.path ?? '/ws'}`);
+  }
+
+  return { app, server, ws };
 }
 
 export async function startServer(port = 3000, options: ServerOptions = {}): Promise<ServerResult> {
@@ -80,6 +90,7 @@ export async function startServer(port = 3000, options: ServerOptions = {}): Pro
   return new Promise((resolve) => {
     result.server.listen(port, () => {
       console.log(`[Reacto] Server running on http://localhost:${port}`);
+      if (result.ws) console.log(`[Reacto] WebSocket available at ws://localhost:${port}/ws`);
       resolve(result);
     });
   });
@@ -90,3 +101,5 @@ export { errorHandler, notFoundHandler } from './middleware/errors.js';
 export { requestLogger } from './middleware/logger.js';
 export { authMiddleware, requireRole, signJwt, verifyJwt, hashPassword, verifyPassword } from './middleware/auth.js';
 export type { JwtPayload, AuthOptions } from './middleware/auth.js';
+export { ReactoWebSocketServer, attachWebSocket, getWebSocketServer } from './websocket/index.js';
+export type { WsMessage, WsBroadcast, WsClient, WebSocketServerOptions } from './websocket/index.js';
