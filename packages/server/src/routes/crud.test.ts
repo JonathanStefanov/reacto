@@ -10,6 +10,7 @@ function createMockModelClass(): ModelClass {
       ['name', { name: 'name', propertyKey: 'name', type: 'string' }],
       ['email', { name: 'email', propertyKey: 'email', type: 'email' }],
     ]),
+    relations: new Map(),
     meta: { tableName: 'test_models' },
   } as unknown as ModelClass;
 }

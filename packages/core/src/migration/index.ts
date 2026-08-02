@@ -88,6 +88,28 @@ async function generateMigrationForModel(modelClass: ModelClass): Promise<Migrat
       columns,
     });
 
+    // Add foreign key constraints
+    const relations = modelClass.relations ?? new Map();
+    for (const [, rel] of relations) {
+      if (rel.type === 'foreignKey' && rel.foreignKeyColumn) {
+        const targetModelClass = getAllModels().get(
+          typeof rel.targetModel === 'function' ? rel.targetModel() : rel.targetModel
+        );
+        if (targetModelClass) {
+          operations.push({
+            type: 'foreignKey',
+            tableName,
+            columnName: rel.foreignKeyColumn,
+            referenceTable: targetModelClass.tableName,
+            referenceColumn: 'id',
+            onDelete: rel.onDelete ?? 'CASCADE',
+            onUpdate: rel.onUpdate ?? 'CASCADE',
+            constraintName: `fk_${tableName}_${rel.foreignKeyColumn}`,
+          });
+        }
+      }
+    }
+
     // Add indexes
     if (modelClass.meta.indexes) {
       for (const idx of modelClass.meta.indexes) {
@@ -264,6 +286,11 @@ export function operationToSql(op: MigrationOperation): string | null {
 
     case 'renameColumn':
       return `ALTER TABLE "${op.tableName}" RENAME COLUMN "${op.oldColumnName}" TO "${op.newColumnName}"`;
+
+    case 'foreignKey': {
+      const constraintName = op.constraintName ?? `fk_${op.tableName}_${op.columnName}`;
+      return `ALTER TABLE "${op.tableName}" ADD CONSTRAINT "${constraintName}" FOREIGN KEY ("${op.columnName}") REFERENCES "${op.referenceTable}" ("${op.referenceColumn}") ON DELETE ${op.onDelete ?? 'CASCADE'} ON UPDATE ${op.onUpdate ?? 'CASCADE'}`;
+    }
 
     default:
       return null;

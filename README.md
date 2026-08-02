@@ -33,8 +33,10 @@ reacto dev
 
 ```typescript
 // models/User.ts
-import { Model, Field } from '@reacto/core';
+import { Model, Field, OneToMany } from '@reacto/core';
 
+// Table name auto-derived: "users"
+@Model()
 export class User extends Model {
   @Field({ type: 'string', maxLength: 150, unique: true })
   username: string;
@@ -45,12 +47,45 @@ export class User extends Model {
   @Field({ type: 'boolean', default: false })
   isStaff: boolean;
 
-  static meta = {
-    tableName: 'users',
-    ordering: ['-createdAt'],
-  };
+  // Reverse relation — no column, just access
+  @OneToMany(() => Post, { mappedBy: 'author' })
+  posts: Post[];
 }
 ```
+
+## Relations
+
+```typescript
+// models/Post.ts
+import { Model, Field, ForeignKey } from '@reacto/core';
+import type { Id } from '@reacto/core';
+import { User } from './User';
+
+@Model()  // → "posts"
+export class Post extends Model {
+  @Field({ type: 'string', maxLength: 255 })
+  title: string;
+
+  @Field({ type: 'text' })
+  content: string;
+
+  // One decorator creates:
+  //   1. `author_id` column (INTEGER)
+  //   2. FOREIGN KEY constraint → users(id)
+  //   3. Index on author_id
+  @ForeignKey(() => User)
+  author: Id<User>;
+}
+```
+
+Available relation decorators:
+
+| Decorator | Column? | Use case |
+|-----------|---------|----------|
+| `@ForeignKey(() => Target)` | ✅ `prop_id` | Many-to-one (owns the FK column) |
+| `@OneToMany(() => Target, { mappedBy })` | ❌ | Reverse of a ForeignKey |
+| `@OneToOne(() => Target, { mappedBy })` | ❌ | Reverse of a one-to-one FK |
+| `@ManyToOne(() => Target)` | ✅ `prop_id` | Alias for `@ForeignKey` |
 
 ## Query Data
 

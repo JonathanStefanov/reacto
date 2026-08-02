@@ -1,14 +1,30 @@
 /**
- * Reacto Example App — Basic blog with users and posts
+ * Reacto Example App — Blog with relations
+ *
+ * Shows the Django-style relation API:
+ *   @ForeignKey(() => Author)  → creates author_id column
+ *   @OneToMany(() => Post)    → reverse relation (no column)
  *
  * Run: npx tsx examples/basic/app.ts
  */
 import 'reflect-metadata';
-import { Model, Field, configureDatabase, ModelManager, generateMigrations, applyMigrations } from '@reacto/core';
+import {
+  Model,
+  Field,
+  ForeignKey,
+  OneToMany,
+  configureDatabase,
+  ModelManager,
+  generateMigrations,
+  applyMigrations,
+} from '@reacto/core';
+import type { Id } from '@reacto/core';
 import { createServer } from '@reacto/server';
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
+// Table name auto-derived: "users"
+@Model()
 class User extends Model {
   @Field({ type: 'string', maxLength: 150, unique: true })
   username: string;
@@ -25,12 +41,13 @@ class User extends Model {
   @Field({ type: 'boolean', default: false })
   isStaff: boolean;
 
-  static meta = {
-    tableName: 'users',
-    ordering: ['-createdAt'],
-  };
+  // Reverse relation — all posts by this user
+  @OneToMany(() => Post, { mappedBy: 'author' })
+  posts: Post[];
 }
 
+// Table name auto-derived: "posts"
+@Model()
 class Post extends Model {
   @Field({ type: 'string', maxLength: 255 })
   title: string;
@@ -41,17 +58,12 @@ class Post extends Model {
   @Field({ type: 'boolean', default: false })
   published: boolean;
 
-  @Field({ type: 'integer' })
-  authorId: number;
-
-  static meta = {
-    tableName: 'posts',
-    ordering: ['-createdAt'],
-    indexes: [
-      { name: 'idx_posts_author', fields: ['author_id'] },
-      { name: 'idx_posts_published', fields: ['published'] },
-    ],
-  };
+  // This is the magic — import Id from User, one decorator creates:
+  //   1. `author_id` column (INTEGER)
+  //   2. FOREIGN KEY constraint → users(id)
+  //   3. Index on author_id
+  @ForeignKey(() => User)
+  author: Id<User>;
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -80,7 +92,7 @@ async function main() {
   // Custom route example
   app.get('/api/posts/by-author/:authorId', async (req, res) => {
     const posts = await ModelManager.objects(Post)
-      .filter({ authorId: parseInt(req.params.authorId), published: true })
+      .filter({ author: parseInt(req.params.authorId), published: true })
       .all();
     res.json({ data: posts.map((p) => p.toJSON()) });
   });

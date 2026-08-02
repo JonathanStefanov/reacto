@@ -19,6 +19,7 @@ function createMockModelClass(): ModelClass {
     ['name', { name: 'name', propertyKey: 'name', type: 'string' }],
     ['age', { name: 'age', propertyKey: 'age', type: 'integer' }],
   ]);
+  (MockModel as any).relations = new Map();
   (MockModel as any).meta = { tableName: 'mock_models' };
 
   return MockModel as unknown as ModelClass;

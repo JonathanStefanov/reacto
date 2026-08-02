@@ -61,11 +61,45 @@ export interface ModelIndex {
   condition?: string;
 }
 
+// ─── Relation Types ──────────────────────────────────────────────────────────
+
+export type RelationType = 'foreignKey' | 'oneToOne' | 'oneToMany' | 'manyToOne';
+
+export interface RelationDefinition {
+  name: string;
+  type: RelationType;
+  targetModel: string | (() => string);
+  foreignKeyColumn?: string;
+  propertyKey: string;
+  nullable?: boolean;
+  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  mappedBy?: string;
+}
+
+export interface ForeignKeyConstraint {
+  type: 'foreignKey';
+  tableName: string;
+  columnName: string;
+  referenceTable: string;
+  referenceColumn: string;
+  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  constraintName?: string;
+}
+
+/**
+ * Type helper: Extract the primary key type of a model.
+ * Usage: `Id<User>` → `number` (the FK column type)
+ */
+export type Id<T> = T extends { id: infer PK } ? PK : number;
+
 export type ModelClass<T extends Model = Model> = {
   new (...args: unknown[]): T;
   meta: ModelMeta;
   tableName: string;
   fields: Map<string, FieldDefinition>;
+  relations: Map<string, RelationDefinition>;
   _modelName: string;
 };
 
@@ -129,7 +163,8 @@ export type MigrationOperation =
   | CreateIndexOperation
   | DropIndexOperation
   | RenameTableOperation
-  | RenameColumnOperation;
+  | RenameColumnOperation
+  | ForeignKeyConstraint;
 
 export interface CreateTableOperation {
   type: 'createTable';
@@ -231,6 +266,7 @@ export abstract class Model {
 
   static meta: ModelMeta;
   static fields: Map<string, FieldDefinition>;
+  static relations: Map<string, RelationDefinition>;
   static _modelName: string;
   static tableName: string;
 

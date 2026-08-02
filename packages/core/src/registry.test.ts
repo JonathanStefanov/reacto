@@ -12,6 +12,7 @@ describe('Registry', () => {
       _modelName: 'TestModel',
       tableName: 'test_models',
       fields: new Map(),
+      relations: new Map(),
       meta: { tableName: 'test_models' },
     } as unknown as ModelClass;
 
@@ -26,8 +27,8 @@ describe('Registry', () => {
   });
 
   it('returns all registered models', () => {
-    const model1 = { _modelName: 'A', tableName: 'a', fields: new Map(), meta: { tableName: 'a' } } as unknown as ModelClass;
-    const model2 = { _modelName: 'B', tableName: 'b', fields: new Map(), meta: { tableName: 'b' } } as unknown as ModelClass;
+    const model1 = { _modelName: 'A', tableName: 'a', fields: new Map(), relations: new Map(), meta: { tableName: 'a' } } as unknown as ModelClass;
+    const model2 = { _modelName: 'B', tableName: 'b', fields: new Map(), relations: new Map(), meta: { tableName: 'b' } } as unknown as ModelClass;
 
     registerModel(model1);
     registerModel(model2);
@@ -39,7 +40,7 @@ describe('Registry', () => {
   });
 
   it('clears the registry', () => {
-    const model = { _modelName: 'X', tableName: 'x', fields: new Map(), meta: { tableName: 'x' } } as unknown as ModelClass;
+    const model = { _modelName: 'X', tableName: 'x', fields: new Map(), relations: new Map(), meta: { tableName: 'x' } } as unknown as ModelClass;
     registerModel(model);
     expect(getAllModels().size).toBe(1);
 

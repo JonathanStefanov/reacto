@@ -209,5 +209,50 @@ describe('migration/index', () => {
       const sql = operationToSql(op);
       expect(sql).toBeNull();
     });
+
+    it('generates FOREIGN KEY constraint SQL', () => {
+      const op: MigrationOperation = {
+        type: 'foreignKey',
+        tableName: 'posts',
+        columnName: 'author_id',
+        referenceTable: 'users',
+        referenceColumn: 'id',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+        constraintName: 'fk_posts_author_id',
+      };
+      const sql = operationToSql(op);
+      expect(sql).toBe(
+        'ALTER TABLE "posts" ADD CONSTRAINT "fk_posts_author_id" FOREIGN KEY ("author_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE'
+      );
+    });
+
+    it('generates FOREIGN KEY with SET NULL on delete', () => {
+      const op: MigrationOperation = {
+        type: 'foreignKey',
+        tableName: 'posts',
+        columnName: 'author_id',
+        referenceTable: 'users',
+        referenceColumn: 'id',
+        onDelete: 'SET NULL',
+        onUpdate: 'CASCADE',
+      };
+      const sql = operationToSql(op);
+      expect(sql).toContain('ON DELETE SET NULL');
+      expect(sql).toContain('fk_posts_author_id');
+    });
+
+    it('generates FOREIGN KEY with defaults when not specified', () => {
+      const op: MigrationOperation = {
+        type: 'foreignKey',
+        tableName: 'posts',
+        columnName: 'author_id',
+        referenceTable: 'users',
+        referenceColumn: 'id',
+      };
+      const sql = operationToSql(op);
+      expect(sql).toContain('ON DELETE CASCADE');
+      expect(sql).toContain('ON UPDATE CASCADE');
+    });
   });
 });
