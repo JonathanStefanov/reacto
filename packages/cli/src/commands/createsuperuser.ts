@@ -51,7 +51,7 @@ export async function createsuperuserCommand(): Promise<void> {
       isStaff: true,
       isAdmin: true,
       isActive: true,
-    } as any);
+    } as Record<string, unknown>);
 
     console.log(chalk.green(`\n  ✓ Superuser created: ${username} (id: ${user.id})\n`));
     await closePool();

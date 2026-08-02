@@ -20,6 +20,7 @@ export interface JwtPayload {
 
 // Extend Express Request
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: JwtPayload;
@@ -54,7 +55,7 @@ export function authMiddleware(options: AuthOptions) {
       const payload = jwt.verify(token, options.secret) as JwtPayload;
       req.user = payload;
       next();
-    } catch (error) {
+    } catch {
       res.status(401).json({ error: { message: 'Invalid or expired token', code: 'UNAUTHORIZED' } });
     }
   };
@@ -64,7 +65,8 @@ export function authMiddleware(options: AuthOptions) {
  * Generate a JWT token.
  */
 export function generateToken(payload: JwtPayload, secret: string, expiresIn: string = '7d'): string {
-  return jwt.sign(payload, secret, { expiresIn: expiresIn as any });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return jwt.sign(payload, secret, { expiresIn } as any);
 }
 
 /**

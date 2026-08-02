@@ -13,7 +13,6 @@
  *   reacto test             Run tests
  */
 import { Command } from 'commander';
-import chalk from 'chalk';
 import { devCommand } from './commands/dev.js';
 import { migrateCommand } from './commands/migrate.js';
 import { makemigrationsCommand } from './commands/makemigrations.js';

@@ -7,7 +7,7 @@
  *   User.objects.create({ username: 'john' })
  *   User.objects.get({ id: 1 })
  */
-import { query, transaction } from './database.js';
+import { query } from './database.js';
 import type {
   Model,
   ModelClass,

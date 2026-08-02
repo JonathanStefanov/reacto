@@ -1,7 +1,7 @@
 /**
  * Reacto — Model Registry (auto-discovery of all models)
  */
-import type { ModelClass, Model } from './types.js';
+import type { ModelClass } from './types.js';
 
 const models = new Map<string, ModelClass>();
 

@@ -10,12 +10,11 @@
  *   }
  */
 import 'reflect-metadata';
-import type { FieldOptions, ModelMeta, FieldDefinition, ModelIndex, ModelClass } from '../types.js';
+import type { FieldOptions, ModelMeta, FieldDefinition, ModelClass } from '../types.js';
 import { Model } from '../types.js';
 import { registerModel } from '../registry.js';
 
 const FIELD_METADATA_KEY = 'reacto:fields';
-const MODEL_METADATA_KEY = 'reacto:model';
 
 // ─── @Field() decorator ───────────────────────────────────────────────────────
 

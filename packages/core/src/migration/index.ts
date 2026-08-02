@@ -14,7 +14,6 @@ import type {
   MigrationOperation,
   ColumnDefinition,
   ModelClass,
-  FieldDefinition,
 } from '../types.js';
 import * as crypto from 'crypto';
 
