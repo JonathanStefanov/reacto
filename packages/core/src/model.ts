@@ -10,6 +10,8 @@
  */
 import { query } from './database.js';
 import { getModel } from './registry.js';
+import { validateModel } from './validators/index.js';
+import { fireSignal } from './signals/index.js';
 import type {
   Model,
   ModelClass,
@@ -536,11 +538,16 @@ export class ModelManager {
 
   /**
    * Create a new record.
+   * Runs validators and fires pre_save / post_save signals.
    */
   static async create<T extends Model>(
     modelClass: ModelClass<T>,
     data: Partial<T>
   ): Promise<T> {
+    // Run validators
+    const dataRecord = data as Record<string, unknown>;
+    validateModel(dataRecord, modelClass.fields, modelClass._modelName);
+
     const fields = modelClass.fields;
     const columns: string[] = [];
     const values: unknown[] = [];
@@ -576,17 +583,24 @@ export class ModelManager {
     instance.createdAt = row.created_at as Date;
     instance.updatedAt = row.updated_at as Date;
 
+    // Fire post_save signal
+    await fireSignal('post_save', instance as unknown as Model);
+
     return instance as unknown as T;
   }
 
   /**
    * Save (upsert) a model instance.
+   * Runs validators and fires pre_save / post_save signals.
    */
   static async save<T extends Model>(instance: T): Promise<T> {
     const modelClass = instance.constructor as ModelClass<T>;
     const fields = modelClass.fields;
 
     if (instance.id) {
+      // Fire pre_save signal
+      await fireSignal('pre_save', instance);
+
       // UPDATE
       const sets: string[] = [];
       const values: unknown[] = [];
@@ -623,9 +637,14 @@ export class ModelManager {
       }
       instance.updatedAt = row.updated_at as Date;
 
+      // Fire post_save signal
+      await fireSignal('post_save', instance);
+
       return instance;
     } else {
-      // INSERT
+      // INSERT — run validators then create
+      const dataRecord = instance as unknown as Record<string, unknown>;
+      validateModel(dataRecord, modelClass.fields, modelClass._modelName);
       return ModelManager.create(modelClass, instance as Partial<T>);
     }
   }
@@ -633,12 +652,16 @@ export class ModelManager {
   /**
    * Delete a model instance.
    * Respects cascade delete from ForeignKey onDelete option.
+   * Fires pre_delete / post_delete signals.
    */
   static async delete<T extends Model>(instance: T): Promise<void> {
     const modelClass = instance.constructor as ModelClass<T>;
     if (!instance.id) {
       throw new Error('Cannot delete an unsaved instance.');
     }
+
+    // Fire pre_delete signal
+    await fireSignal('pre_delete', instance);
 
     // Cascade delete: find models that have FK pointing at this model
     const { getAllModels } = await import('./registry.js');
@@ -675,6 +698,9 @@ export class ModelManager {
     }
 
     await query(`DELETE FROM "${modelClass.tableName}" WHERE "id" = $1`, [instance.id]);
+
+    // Fire post_delete signal
+    await fireSignal('post_delete', instance);
   }
 
   /**

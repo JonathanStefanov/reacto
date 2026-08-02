@@ -2,6 +2,13 @@
  * Reacto Core — Type definitions
  */
 
+// ─── Validator Interface ──────────────────────────────────────────────────────
+
+export interface Validator {
+  name: string;
+  validate: (value: unknown, fieldName: string) => string | null;
+}
+
 // ─── Field Types ──────────────────────────────────────────────────────────────
 
 export type FieldType =
@@ -36,6 +43,7 @@ export interface FieldOptions {
   verboseName?: string;
   helpText?: string;
   dbColumn?: string;
+  validators?: Validator[];
 }
 
 export interface FieldDefinition extends FieldOptions {

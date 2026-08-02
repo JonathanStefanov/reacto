@@ -110,3 +110,12 @@ export async function startServer(port: number = 3000, options: ServerOptions = 
 export { generateCrudRoutes } from './routes/crud.js';
 export { errorHandler, notFoundHandler } from './middleware/errors.js';
 export { requestLogger } from './middleware/logger.js';
+export {
+  authMiddleware,
+  requireAuth,
+  optionalAuth,
+  requireProperty,
+  signJwt,
+  verifyJwt,
+} from './middleware/auth.js';
+export type { AuthConfig, JwtPayload } from './middleware/auth.js';

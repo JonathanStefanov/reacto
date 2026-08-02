@@ -125,3 +125,33 @@ export {
 // ─── Fields ───────────────────────────────────────────────────────────────────
 
 export { fieldTypeToPgType, fieldToColumn, columnToSql } from './fields/index.js';
+
+// ─── Signals ───────────────────────────────────────────────────────────────
+
+export {
+  preSave,
+  postSave,
+  preDelete,
+  postDelete,
+  clearSignals,
+  getSignalCount,
+} from './signals/index.js';
+
+// ─── Validators ────────────────────────────────────────────────────────────
+
+export {
+  required,
+  minLength,
+  maxLength,
+  min,
+  max,
+  pattern,
+  email as emailValidator,
+  url as urlValidator,
+  oneOf,
+  custom,
+  validateField,
+  validateModel,
+  ValidationError,
+} from './validators/index.js';
+export type { ValidationResult } from './validators/index.js';

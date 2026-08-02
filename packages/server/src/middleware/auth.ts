@@ -1,24 +1,108 @@
 /**
- * @reacto/server — Authentication middleware (JWT)
+ * @reacto/server — JWT Authentication middleware
+ *
+ * Usage:
+ *   app.use(authMiddleware({ secret: 'my-secret' }));
+ *   app.use('/admin', requireAuth());
+ *   app.use('/api', optionalAuth());
  */
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 
-export interface AuthOptions {
+export interface AuthConfig {
+  /** JWT secret key */
   secret: string;
-  excludePaths?: string[];
-  excludeMethods?: string[];
+  /** Token extraction method. Default: 'header' */
+  tokenFrom?: 'header' | 'cookie' | 'query';
+  /** Cookie name when tokenFrom is 'cookie'. Default: 'token' */
+  cookieName?: string;
+  /** Header name when tokenFrom is 'header'. Default: 'Authorization' */
+  headerName?: string;
+  /** Query param name when tokenFrom is 'query'. Default: 'token' */
+  queryParam?: string;
 }
 
 export interface JwtPayload {
-  userId: number;
-  email: string;
-  isStaff?: boolean;
-  isAdmin?: boolean;
+  sub: string | number;
+  iat?: number;
+  exp?: number;
   [key: string]: unknown;
 }
 
-// Extend Express Request
+// ─── Simple JWT implementation (no external deps) ────────────────────────────
+
+function base64UrlEncode(data: string): string {
+  return Buffer.from(data)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function base64UrlDecode(data: string): string {
+  const padded = data.replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(padded, 'base64').toString('utf-8');
+}
+
+function hmacSha256(data: string, secret: string): string {
+  const crypto = require('crypto');
+  return crypto
+    .createHmac('sha256', secret)
+    .update(data)
+    .digest('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+/**
+ * Sign a JWT token.
+ */
+export function signJwt(payload: JwtPayload, secret: string, expiresIn: number = 3600): string {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+
+  const fullPayload: JwtPayload = {
+    ...payload,
+    iat: now,
+    exp: now + expiresIn,
+  };
+
+  const headerEncoded = base64UrlEncode(JSON.stringify(header));
+  const payloadEncoded = base64UrlEncode(JSON.stringify(fullPayload));
+  const signature = hmacSha256(`${headerEncoded}.${payloadEncoded}`, secret);
+
+  return `${headerEncoded}.${payloadEncoded}.${signature}`;
+}
+
+/**
+ * Verify and decode a JWT token.
+ */
+export function verifyJwt(token: string, secret: string): JwtPayload {
+  const parts = token.split('.');
+  if (parts.length !== 3) {
+    throw new Error('Invalid token format');
+  }
+
+  const [headerEncoded, payloadEncoded, signature] = parts;
+  const expectedSignature = hmacSha256(`${headerEncoded}.${payloadEncoded}`, secret);
+
+  if (signature !== expectedSignature) {
+    throw new Error('Invalid token signature');
+  }
+
+  const payload: JwtPayload = JSON.parse(base64UrlDecode(payloadEncoded));
+
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+    throw new Error('Token expired');
+  }
+
+  return payload;
+}
+
+// ─── Express Middleware ───────────────────────────────────────────────────────
+
+// Extend Express Request type
+// eslint-disable-next-line @typescript-eslint/no-namespace
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
@@ -29,75 +113,96 @@ declare global {
 }
 
 /**
- * JWT authentication middleware.
+ * Extract token from request.
  */
-export function authMiddleware(options: AuthOptions) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    // Skip excluded paths
-    if (options.excludePaths?.some((p) => req.path.startsWith(p))) {
-      return next();
-    }
+function extractToken(req: Request, config: AuthConfig): string | null {
+  const tokenFrom = config.tokenFrom ?? 'header';
 
-    // Skip excluded methods
-    if (options.excludeMethods?.includes(req.method)) {
-      return next();
+  switch (tokenFrom) {
+    case 'header': {
+      const headerName = config.headerName ?? 'Authorization';
+      const authHeader = req.headers[headerName.toLowerCase()];
+      if (!authHeader || typeof authHeader !== 'string') return null;
+      if (authHeader.startsWith('Bearer ')) return authHeader.slice(7);
+      return authHeader;
     }
-
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      res.status(401).json({ error: { message: 'Missing or invalid token', code: 'UNAUTHORIZED' } });
-      return;
+    case 'cookie': {
+      const cookieName = config.cookieName ?? 'token';
+      return (req.cookies?.[cookieName] as string) ?? null;
     }
-
-    const token = authHeader.slice(7);
-
-    try {
-      const payload = jwt.verify(token, options.secret) as JwtPayload;
-      req.user = payload;
-      next();
-    } catch {
-      res.status(401).json({ error: { message: 'Invalid or expired token', code: 'UNAUTHORIZED' } });
+    case 'query': {
+      const queryParam = config.queryParam ?? 'token';
+      const val = req.query[queryParam];
+      return typeof val === 'string' ? val : null;
     }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Auth middleware — attaches user to request if token is present.
+ * Does NOT reject unauthenticated requests (use requireAuth for that).
+ */
+export function authMiddleware(config: AuthConfig) {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const token = extractToken(req, config);
+    if (token) {
+      try {
+        req.user = verifyJwt(token, config.secret);
+      } catch {
+        // Invalid token — user stays undefined
+      }
+    }
+    next();
   };
 }
 
 /**
- * Generate a JWT token.
+ * Require authentication — returns 401 if no valid token.
  */
-export function generateToken(payload: JwtPayload, secret: string, expiresIn: string = '7d'): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return jwt.sign(payload, secret, { expiresIn } as any);
+export function requireAuth() {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
+    next();
+  };
 }
 
 /**
- * Require authenticated user.
+ * Optional authentication — proceeds regardless, but attaches user if present.
+ * This is the same as authMiddleware behavior, provided for explicitness.
  */
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  if (!req.user) {
-    res.status(401).json({ error: { message: 'Authentication required', code: 'UNAUTHORIZED' } });
-    return;
-  }
-  next();
+export function optionalAuth() {
+  return (_req: Request, _res: Response, next: NextFunction): void => {
+    next();
+  };
 }
 
 /**
- * Require staff user.
+ * Require specific user properties.
  */
-export function requireStaff(req: Request, res: Response, next: NextFunction): void {
-  if (!req.user?.isStaff) {
-    res.status(403).json({ error: { message: 'Staff access required', code: 'FORBIDDEN' } });
-    return;
-  }
-  next();
-}
+export function requireProperty(property: string, value?: unknown) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
 
-/**
- * Require admin user.
- */
-export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
-  if (!req.user?.isAdmin) {
-    res.status(403).json({ error: { message: 'Admin access required', code: 'FORBIDDEN' } });
-    return;
-  }
-  next();
+    if (value !== undefined) {
+      if (req.user[property] !== value) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+    } else {
+      if (!(property in req.user)) {
+        res.status(403).json({ error: 'Forbidden' });
+        return;
+      }
+    }
+
+    next();
+  };
 }

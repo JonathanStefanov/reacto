@@ -1,13 +1,14 @@
 /**
- * Reacto Example App — Blog with relations, eager loading, cascade delete
+ * Reacto Example App — Full-featured blog
  *
- * Shows the full Django-style API:
- *   @ForeignKey(() => User)              → creates author_id column
- *   @OneToMany(() => Post, { mappedBy }) → reverse relation
- *   .with('author')                      → eager loading (LEFT JOIN)
- *   CASCADE delete                       → delete posts when user is deleted
- *   GET /api/users/1/posts               → nested route (auto-generated)
- *   POST /api/users/1/posts              → create post via nested route
+ * Features demonstrated:
+ *   - Models with relations (@ForeignKey, @OneToMany)
+ *   - Field validators (required, minLength, email)
+ *   - Signals (pre_save, post_save)
+ *   - Auth middleware (JWT)
+ *   - Eager loading (.with())
+ *   - Nested routes
+ *   - Cascade delete
  *
  * Run: npx tsx examples/basic/app.ts
  */
@@ -21,22 +22,32 @@ import {
   ModelManager,
   generateMigrations,
   applyMigrations,
+  preSave,
+  postSave,
+  required,
+  minLength,
+  maxLength,
+  email as emailValidator,
 } from '@reacto/core';
 import type { Id } from '@reacto/core';
-import { createServer } from '@reacto/server';
+import {
+  createServer,
+  authMiddleware,
+  requireAuth,
+  signJwt,
+} from '@reacto/server';
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
-// Table name auto-derived: "users"
 @Model()
 class User extends Model {
-  @Field({ type: 'string', maxLength: 150, unique: true })
+  @Field({ type: 'string', maxLength: 150, unique: true, validators: [required(), minLength(3)] })
   username: string;
 
-  @Field({ type: 'email' })
+  @Field({ type: 'email', validators: [required(), emailValidator()] })
   email: string;
 
-  @Field({ type: 'string', maxLength: 255 })
+  @Field({ type: 'string', maxLength: 255, validators: [required(), minLength(8)] })
   password: string;
 
   @Field({ type: 'boolean', default: true })
@@ -45,38 +56,45 @@ class User extends Model {
   @Field({ type: 'boolean', default: false })
   isStaff: boolean;
 
-  // Reverse relation — all posts by this user
-  // GET /api/users/:id/posts → list posts
-  // POST /api/users/:id/posts → create post with author set
   @OneToMany(() => Post, { mappedBy: 'author' })
   posts: Post[];
 }
 
-// Table name auto-derived: "posts"
 @Model()
 class Post extends Model {
-  @Field({ type: 'string', maxLength: 255 })
+  @Field({ type: 'string', maxLength: 255, validators: [required(), minLength(1)] })
   title: string;
 
-  @Field({ type: 'text' })
+  @Field({ type: 'text', validators: [required()] })
   content: string;
 
   @Field({ type: 'boolean', default: false })
   published: boolean;
 
-  // This is the magic — one decorator creates:
-  //   1. `author_id` column (INTEGER)
-  //   2. FOREIGN KEY constraint → users(id) ON DELETE CASCADE
-  //   3. Index on author_id
-  //   4. GET /api/posts/:id/author → nested route
   @ForeignKey(() => User, { onDelete: 'CASCADE' })
   author: Id<User>;
 }
 
+// ─── Signals ──────────────────────────────────────────────────────────────────
+
+// Hash password before saving (in real app, use bcrypt)
+preSave(User, async (user) => {
+  const u = user as any;
+  if (u.password && !u.password.startsWith('$2b$')) {
+    u.password = `hashed_${u.password}`;
+    console.log(`[Signal] Password hashed for user: ${u.username}`);
+  }
+});
+
+// Log after saving
+postSave(User, async (user) => {
+  const u = user as any;
+  console.log(`[Signal] User saved: ${u.username} (id: ${u.id})`);
+});
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  // Configure database
   configureDatabase({
     host: process.env.DB_HOST ?? 'localhost',
     port: parseInt(process.env.DB_PORT ?? '5432'),
@@ -85,31 +103,52 @@ async function main() {
     password: process.env.DB_PASS ?? 'postgres',
   });
 
-  // Auto-migrate
   console.log('\n📦 Running migrations...\n');
   const migrations = await generateMigrations();
   await applyMigrations(migrations);
 
-  // Create server
   const app = createServer({
     basePath: '/api',
     cors: { origin: '*' },
   });
 
-  // Start
+  // Add auth middleware
+  const JWT_SECRET = process.env.JWT_SECRET ?? 'super-secret-key-change-me';
+  app.use(authMiddleware({ secret: JWT_SECRET }));
+
+  // Login endpoint (generates JWT)
+  app.post('/api/auth/login', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+      const user = await ModelManager.objects(User).get({ username });
+      if ((user as any).password !== `hashed_${password}`) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+      const token = signJwt({ sub: user.id, username }, JWT_SECRET, 86400);
+      res.json({ token, user: user.toJSON() });
+    } catch {
+      res.status(401).json({ error: 'Invalid credentials' });
+    }
+  });
+
+  // Protected endpoint example
+  app.get('/api/auth/me', requireAuth(), async (req, res) => {
+    const user = await ModelManager.objects(User).get({ id: Number(req.user!.sub) });
+    res.json({ user: user.toJSON() });
+  });
+
   const port = parseInt(process.env.PORT ?? '3000');
   app.listen(port, () => {
     console.log(`\n⚡ Reacto example running at http://localhost:${port}`);
     console.log(`\n📡 API Endpoints:`);
-    console.log(`   GET    /api/users              → List users`);
-    console.log(`   POST   /api/users              → Create user`);
-    console.log(`   GET    /api/users/:id           → Get user`);
-    console.log(`   GET    /api/users/:id/posts     → List user's posts`);
+    console.log(`   POST   /api/auth/login         → Login (get JWT)`);
+    console.log(`   GET    /api/auth/me             → Current user (protected)`);
+    console.log(`   GET    /api/users?with=posts    → List users with posts`);
+    console.log(`   GET    /api/posts?with=author   → List posts with author`);
+    console.log(`   GET    /api/users/:id/posts     → User's posts`);
     console.log(`   POST   /api/users/:id/posts     → Create post for user`);
-    console.log(`   GET    /api/posts               → List posts`);
-    console.log(`   GET    /api/posts?with=author    → List posts with author`);
-    console.log(`   GET    /api/posts/:id/author    → Get post's author`);
-    console.log(`   DELETE /api/users/:id           → Delete user (cascades to posts)\n`);
+    console.log(`   GET    /api/posts/:id/author    → Post's author`);
+    console.log(`   DELETE /api/users/:id           → Cascade delete\n`);
   });
 }
 

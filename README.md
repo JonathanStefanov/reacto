@@ -93,6 +93,64 @@ await user.delete();  // also deletes all posts where author_id = 1
 
 Options: `CASCADE`, `SET NULL`, `RESTRICT`, `NO ACTION` (default: `CASCADE`)
 
+## Validators
+
+Field-level validation runs automatically on create/save:
+
+```typescript
+@Model()
+class User extends Model {
+  @Field({ type: 'string', validators: [required(), minLength(3)] })
+  username: string;
+
+  @Field({ type: 'email', validators: [required(), email()] })
+  email: string;
+}
+
+// Throws ValidationError if invalid
+await ModelManager.create(User, { username: 'ab', email: 'bad' });
+// → ValidationError: username must be at least 3 characters; Must be a valid email
+```
+
+Built-in validators: `required`, `minLength`, `maxLength`, `min`, `max`, `pattern`, `email`, `url`, `oneOf`, `custom`
+
+## Signals
+
+Django-style lifecycle hooks:
+
+```typescript
+import { preSave, postSave, preDelete, postDelete } from '@reacto/core';
+
+preSave(User, async (user) => {
+  user.password = await hash(user.password);
+});
+
+postSave(User, async (user) => {
+  await sendWelcomeEmail(user.email);
+});
+
+preDelete(User, async (user) => {
+  await cleanupUserData(user.id);
+});
+```
+
+## Authentication
+
+Built-in JWT auth middleware:
+
+```typescript
+import { authMiddleware, requireAuth, signJwt } from '@reacto/server';
+
+// Add to your app
+app.use(authMiddleware({ secret: 'your-secret' }));
+
+// Protect specific routes
+app.get('/api/admin', requireAuth(), handler);
+
+// Generate tokens
+const token = signJwt({ sub: user.id }, 'your-secret', 86400);
+```
+
 ## Auto-generated API
 
 Your models automatically get REST endpoints:
