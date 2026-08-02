@@ -1,9 +1,13 @@
 /**
- * Reacto Example App — Blog with relations
+ * Reacto Example App — Blog with relations, eager loading, cascade delete
  *
- * Shows the Django-style relation API:
- *   @ForeignKey(() => Author)  → creates author_id column
- *   @OneToMany(() => Post)    → reverse relation (no column)
+ * Shows the full Django-style API:
+ *   @ForeignKey(() => User)              → creates author_id column
+ *   @OneToMany(() => Post, { mappedBy }) → reverse relation
+ *   .with('author')                      → eager loading (LEFT JOIN)
+ *   CASCADE delete                       → delete posts when user is deleted
+ *   GET /api/users/1/posts               → nested route (auto-generated)
+ *   POST /api/users/1/posts              → create post via nested route
  *
  * Run: npx tsx examples/basic/app.ts
  */
@@ -42,6 +46,8 @@ class User extends Model {
   isStaff: boolean;
 
   // Reverse relation — all posts by this user
+  // GET /api/users/:id/posts → list posts
+  // POST /api/users/:id/posts → create post with author set
   @OneToMany(() => Post, { mappedBy: 'author' })
   posts: Post[];
 }
@@ -58,11 +64,12 @@ class Post extends Model {
   @Field({ type: 'boolean', default: false })
   published: boolean;
 
-  // This is the magic — import Id from User, one decorator creates:
+  // This is the magic — one decorator creates:
   //   1. `author_id` column (INTEGER)
-  //   2. FOREIGN KEY constraint → users(id)
+  //   2. FOREIGN KEY constraint → users(id) ON DELETE CASCADE
   //   3. Index on author_id
-  @ForeignKey(() => User)
+  //   4. GET /api/posts/:id/author → nested route
+  @ForeignKey(() => User, { onDelete: 'CASCADE' })
   author: Id<User>;
 }
 
@@ -89,20 +96,20 @@ async function main() {
     cors: { origin: '*' },
   });
 
-  // Custom route example
-  app.get('/api/posts/by-author/:authorId', async (req, res) => {
-    const posts = await ModelManager.objects(Post)
-      .filter({ author: parseInt(req.params.authorId), published: true })
-      .all();
-    res.json({ data: posts.map((p) => p.toJSON()) });
-  });
-
   // Start
   const port = parseInt(process.env.PORT ?? '3000');
   app.listen(port, () => {
     console.log(`\n⚡ Reacto example running at http://localhost:${port}`);
-    console.log(`   API: http://localhost:${port}/api/users`);
-    console.log(`   API: http://localhost:${port}/api/posts\n`);
+    console.log(`\n📡 API Endpoints:`);
+    console.log(`   GET    /api/users              → List users`);
+    console.log(`   POST   /api/users              → Create user`);
+    console.log(`   GET    /api/users/:id           → Get user`);
+    console.log(`   GET    /api/users/:id/posts     → List user's posts`);
+    console.log(`   POST   /api/users/:id/posts     → Create post for user`);
+    console.log(`   GET    /api/posts               → List posts`);
+    console.log(`   GET    /api/posts?with=author    → List posts with author`);
+    console.log(`   GET    /api/posts/:id/author    → Get post's author`);
+    console.log(`   DELETE /api/users/:id           → Delete user (cascades to posts)\n`);
   });
 }
 

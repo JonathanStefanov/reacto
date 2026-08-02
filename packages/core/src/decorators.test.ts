@@ -257,6 +257,27 @@ describe('decorators', () => {
       expect(meta.indexes).toBeDefined();
       expect(meta.indexes.some((i: any) => i.fields.includes('author_id'))).toBe(true);
     });
+
+    it('stores onDelete and onUpdate options', () => {
+      @ModelDecorator({ tableName: 'users' })
+      class User extends Model {
+        @Field({ type: 'string' })
+        username!: string;
+      }
+
+      @ModelDecorator({ tableName: 'posts' })
+      class Post extends Model {
+        @Field({ type: 'string' })
+        title!: string;
+
+        @ForeignKey(() => User, { onDelete: 'SET NULL', onUpdate: 'CASCADE' })
+        author!: Id<User>;
+      }
+
+      const relations = (Post as any).relations;
+      expect(relations.get('author').onDelete).toBe('SET NULL');
+      expect(relations.get('author').onUpdate).toBe('CASCADE');
+    });
   });
 
   describe('@OneToMany', () => {
@@ -329,7 +350,6 @@ describe('decorators', () => {
 
   describe('Id<T> type', () => {
     it('compiles as number (the PK type)', () => {
-      // This is a compile-time check — if it compiles, the test passes
       @ModelDecorator({ tableName: 'users' })
       class User extends Model {
         @Field({ type: 'string' })
@@ -338,6 +358,71 @@ describe('decorators', () => {
 
       const id: Id<User> = 42;
       expect(typeof id).toBe('number');
+    });
+  });
+
+  describe('toJSON() with relations', () => {
+    it('includes loaded relations in toJSON output', () => {
+      @ModelDecorator({ tableName: 'users' })
+      class User extends Model {
+        @Field({ type: 'string' })
+        username!: string;
+      }
+
+      @ModelDecorator({ tableName: 'posts' })
+      class Post extends Model {
+        @Field({ type: 'string' })
+        title!: string;
+
+        @ForeignKey(() => User)
+        author!: Id<User>;
+      }
+
+      const user = new User() as any;
+      user.id = 1;
+      user.username = 'john';
+      user.createdAt = new Date();
+      user.updatedAt = new Date();
+
+      const post = new Post() as any;
+      post.id = 1;
+      post.title = 'Hello';
+      post.author = user;
+      post.createdAt = new Date();
+      post.updatedAt = new Date();
+
+      const json = post.toJSON();
+      expect(json.title).toBe('Hello');
+      expect(json.author).toBeDefined();
+      expect((json.author as any).username).toBe('john');
+    });
+
+    it('does not include unloaded relations', () => {
+      @ModelDecorator({ tableName: 'users' })
+      class User extends Model {
+        @Field({ type: 'string' })
+        username!: string;
+      }
+
+      @ModelDecorator({ tableName: 'posts' })
+      class Post extends Model {
+        @Field({ type: 'string' })
+        title!: string;
+
+        @ForeignKey(() => User)
+        author!: Id<User>;
+      }
+
+      const post = new Post() as any;
+      post.id = 1;
+      post.title = 'Hello';
+      post.createdAt = new Date();
+      post.updatedAt = new Date();
+
+      const json = post.toJSON();
+      expect(json.title).toBe('Hello');
+      // author is undefined (not loaded), so it's included as undefined
+      expect(json.author).toBeUndefined();
     });
   });
 });

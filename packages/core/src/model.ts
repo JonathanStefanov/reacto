@@ -4,13 +4,16 @@
  * Provides Django-style ORM operations:
  *   User.objects.all()
  *   User.objects.filter({ username: 'john' })
+ *   User.objects.filter({}).with('posts').all()  ← eager loading
  *   User.objects.create({ username: 'john' })
  *   User.objects.get({ id: 1 })
  */
 import { query } from './database.js';
+import { getModel } from './registry.js';
 import type {
   Model,
   ModelClass,
+  RelationDefinition,
   WhereClause,
   OrderClause,
   QueryOptions,
@@ -20,12 +23,21 @@ import type {
 
 // ─── QuerySet ─────────────────────────────────────────────────────────────────
 
+interface JoinSpec {
+  relation: RelationDefinition;
+  alias: string;
+  targetTable: string;
+  joinColumn: string;
+  onColumn: string;
+}
+
 /**
  * A lazy queryset for building queries (like Django's QuerySet).
  */
 export class QuerySet<T extends Model> {
   private modelClass: ModelClass<T>;
   private options: QueryOptions = {};
+  private eagerRelations: string[] = [];
 
   constructor(modelClass: ModelClass<T>, options: QueryOptions = {}) {
     this.modelClass = modelClass;
@@ -33,14 +45,31 @@ export class QuerySet<T extends Model> {
   }
 
   /**
+   * Eager load a relation (like Django's .select_related()).
+   *
+   * @example
+   * ```ts
+   * const posts = await Post.objects.filter({}).with('author').all();
+   * posts[0].author  // already loaded, no extra query
+   * ```
+   */
+  with(...relations: string[]): QuerySet<T> {
+    const qs = new QuerySet<T>(this.modelClass, { ...this.options });
+    qs.eagerRelations = [...this.eagerRelations, ...relations];
+    return qs;
+  }
+
+  /**
    * Filter results (like Django's .filter()).
    */
   filter(conditions: Record<string, unknown>): QuerySet<T> {
     const where = this.buildWhere(conditions);
-    return new QuerySet<T>(this.modelClass, {
+    const qs = new QuerySet<T>(this.modelClass, {
       ...this.options,
       where: [...(this.options.where ?? []), ...where],
     });
+    qs.eagerRelations = [...this.eagerRelations];
+    return qs;
   }
 
   /**
@@ -51,10 +80,12 @@ export class QuerySet<T extends Model> {
       ...w,
       operator: negateOperator(w.operator) as WhereClause['operator'],
     }));
-    return new QuerySet<T>(this.modelClass, {
+    const qs = new QuerySet<T>(this.modelClass, {
       ...this.options,
       where: [...(this.options.where ?? []), ...where],
     });
+    qs.eagerRelations = [...this.eagerRelations];
+    return qs;
   }
 
   /**
@@ -67,34 +98,42 @@ export class QuerySet<T extends Model> {
       }
       return { field: f, direction: 'ASC' as const };
     });
-    return new QuerySet<T>(this.modelClass, {
+    const qs = new QuerySet<T>(this.modelClass, {
       ...this.options,
       orderBy: orders,
     });
+    qs.eagerRelations = [...this.eagerRelations];
+    return qs;
   }
 
   /**
    * Limit results (like Django's [:10] slicing).
    */
   limit(count: number): QuerySet<T> {
-    return new QuerySet<T>(this.modelClass, { ...this.options, limit: count });
+    const qs = new QuerySet<T>(this.modelClass, { ...this.options, limit: count });
+    qs.eagerRelations = [...this.eagerRelations];
+    return qs;
   }
 
   /**
    * Offset results.
    */
   offset(count: number): QuerySet<T> {
-    return new QuerySet<T>(this.modelClass, { ...this.options, offset: count });
+    const qs = new QuerySet<T>(this.modelClass, { ...this.options, offset: count });
+    qs.eagerRelations = [...this.eagerRelations];
+    return qs;
   }
 
   /**
    * Select specific fields.
    */
   select(...fields: string[]): QuerySet<T> {
-    return new QuerySet<T>(this.modelClass, {
+    const qs = new QuerySet<T>(this.modelClass, {
       ...this.options,
       select: fields,
     });
+    qs.eagerRelations = [...this.eagerRelations];
+    return qs;
   }
 
   /**
@@ -178,26 +217,82 @@ export class QuerySet<T extends Model> {
    * Execute the query and return results.
    */
   private async execute(): Promise<T[]> {
-    const sql = this.buildSelectSql();
+    const joins = this.resolveJoins();
+    const sql = this.buildSelectSql(joins);
     const result = await query(sql, this.buildParams());
-    return result.rows.map((row) => this.hydrate(row));
+    return result.rows.map((row) => this.hydrate(row, joins));
+  }
+
+  // ─── Join Resolution ─────────────────────────────────────────────────────
+
+  /**
+   * Resolve eager relation names into join specs.
+   */
+  private resolveJoins(): JoinSpec[] {
+    const joins: JoinSpec[] = [];
+    const relations = this.modelClass.relations;
+
+    for (const relName of this.eagerRelations) {
+      const rel = relations?.get(relName);
+      if (!rel) {
+        console.warn(`[Reacto] Relation "${relName}" not found on ${this.modelClass._modelName}, skipping.`);
+        continue;
+      }
+
+      if (rel.type === 'foreignKey') {
+        const targetName = typeof rel.targetModel === 'function' ? rel.targetModel() : rel.targetModel;
+        const targetModel = getModel(targetName);
+        if (!targetModel) {
+          console.warn(`[Reacto] Model "${targetName}" not found for relation "${relName}", skipping.`);
+          continue;
+        }
+
+        joins.push({
+          relation: rel,
+          alias: `__rel_${relName}`,
+          targetTable: targetModel.tableName,
+          joinColumn: `${this.modelClass.tableName}.${rel.foreignKeyColumn}`,
+          onColumn: `${targetModel.tableName}.id`,
+        });
+      }
+      // oneToMany and oneToOne reverse relations would need separate handling
+      // (multiple rows or subqueries) — skip for now
+    }
+
+    return joins;
   }
 
   // ─── SQL Builders ─────────────────────────────────────────────────────────
 
-  private buildSelectSql(): string {
+  private buildSelectSql(joins: JoinSpec[] = []): string {
     const table = this.modelClass.tableName;
-    const fields = this.options.select?.length
-      ? this.options.select.join(', ')
-      : '*';
-    let sql = `SELECT ${fields} FROM "${table}"`;
+    let columns: string;
+
+    if (joins.length > 0) {
+      // Main table columns (prefixed for disambiguation)
+      const mainCols = this.buildMainColumns(table);
+      // Join columns (prefixed with alias)
+      const joinCols = joins.flatMap((j) => this.buildJoinColumns(j));
+      columns = [...mainCols, ...joinCols].join(', ');
+    } else if (this.options.select?.length) {
+      columns = this.options.select.join(', ');
+    } else {
+      columns = `"${table}".*`;
+    }
+
+    let sql = `SELECT ${columns} FROM "${table}"`;
+
+    // Add JOINs
+    for (const j of joins) {
+      sql += ` LEFT JOIN "${j.targetTable}" AS "${j.alias}" ON ${j.joinColumn} = "${j.alias}".id`;
+    }
 
     if (this.options.where?.length) {
       sql += ` WHERE ${this.buildWhereSql()}`;
     }
     if (this.options.orderBy?.length) {
       const orders = this.options.orderBy
-        .map((o) => `"${o.field}" ${o.direction}`)
+        .map((o) => `"${table}"."${o.field}" ${o.direction}`)
         .join(', ');
       sql += ` ORDER BY ${orders}`;
     }
@@ -209,6 +304,45 @@ export class QuerySet<T extends Model> {
     }
 
     return sql;
+  }
+
+  /**
+   * Build column list for the main table, prefixed with table name.
+   */
+  private buildMainColumns(table: string): string[] {
+    const cols: string[] = [];
+    for (const [, fieldDef] of this.modelClass.fields) {
+      const dbColumn = fieldDef.dbColumn || fieldDef.name;
+      cols.push(`"${table}"."${dbColumn}" AS "main__${dbColumn}"`);
+    }
+    // Always include built-in columns
+    cols.push(`"${table}"."id" AS "main__id"`);
+    cols.push(`"${table}"."created_at" AS "main__created_at"`);
+    cols.push(`"${table}"."updated_at" AS "main__updated_at"`);
+    // Deduplicate
+    return [...new Set(cols)];
+  }
+
+  /**
+   * Build column list for a join, prefixed with alias.
+   */
+  private buildJoinColumns(join: JoinSpec): string[] {
+    const targetModel = getModel(
+      typeof join.relation.targetModel === 'function'
+        ? join.relation.targetModel()
+        : join.relation.targetModel
+    );
+    if (!targetModel) return [];
+
+    const cols: string[] = [];
+    for (const [, fieldDef] of targetModel.fields) {
+      const dbColumn = fieldDef.dbColumn || fieldDef.name;
+      cols.push(`"${join.alias}"."${dbColumn}" AS "${join.alias}__${dbColumn}"`);
+    }
+    cols.push(`"${join.alias}"."id" AS "${join.alias}__id"`);
+    cols.push(`"${join.alias}"."created_at" AS "${join.alias}__created_at"`);
+    cols.push(`"${join.alias}"."updated_at" AS "${join.alias}__updated_at"`);
+    return [...new Set(cols)];
   }
 
   private buildCountSql(): string {
@@ -260,38 +394,40 @@ export class QuerySet<T extends Model> {
   }
 
   private buildWhereSql(paramOffset = 0): string {
+    const table = this.modelClass.tableName;
     return (this.options.where ?? [])
       .map((w, i) => {
         const paramName = `$${i + 1 + paramOffset}`;
+        const qualifiedField = `"${table}"."${w.field}"`;
         switch (w.operator) {
           case 'eq':
-            return `"${w.field}" = ${paramName}`;
+            return `${qualifiedField} = ${paramName}`;
           case 'neq':
-            return `"${w.field}" != ${paramName}`;
+            return `${qualifiedField} != ${paramName}`;
           case 'gt':
-            return `"${w.field}" > ${paramName}`;
+            return `${qualifiedField} > ${paramName}`;
           case 'gte':
-            return `"${w.field}" >= ${paramName}`;
+            return `${qualifiedField} >= ${paramName}`;
           case 'lt':
-            return `"${w.field}" < ${paramName}`;
+            return `${qualifiedField} < ${paramName}`;
           case 'lte':
-            return `"${w.field}" <= ${paramName}`;
+            return `${qualifiedField} <= ${paramName}`;
           case 'in':
-            return `"${w.field}" = ANY(${paramName})`;
+            return `${qualifiedField} = ANY(${paramName})`;
           case 'nin':
-            return `"${w.field}" != ALL(${paramName})`;
+            return `${qualifiedField} != ALL(${paramName})`;
           case 'like':
-            return `"${w.field}" LIKE ${paramName}`;
+            return `${qualifiedField} LIKE ${paramName}`;
           case 'ilike':
-            return `"${w.field}" ILIKE ${paramName}`;
+            return `${qualifiedField} ILIKE ${paramName}`;
           case 'isNull':
-            return `"${w.field}" IS NULL`;
+            return `${qualifiedField} IS NULL`;
           case 'isNotNull':
-            return `"${w.field}" IS NOT NULL`;
+            return `${qualifiedField} IS NOT NULL`;
           case 'between':
-            return `"${w.field}" BETWEEN ${paramName} AND $${i + 2 + paramOffset}`;
+            return `${qualifiedField} BETWEEN ${paramName} AND $${i + 2 + paramOffset}`;
           default:
-            return `"${w.field}" = ${paramName}`;
+            return `${qualifiedField} = ${paramName}`;
         }
       })
       .join(' AND ');
@@ -317,22 +453,69 @@ export class QuerySet<T extends Model> {
 
   /**
    * Hydrate a database row into a model instance.
+   * Handles eager-loaded relations when joins are present.
    */
-  private hydrate(row: Record<string, unknown>): T {
+  private hydrate(row: Record<string, unknown>, joins: JoinSpec[] = []): T {
     const instance = new this.modelClass() as Record<string, unknown>;
     const fields = this.modelClass.fields;
 
-    for (const [propertyKey, fieldDef] of fields) {
-      const dbColumn = fieldDef.dbColumn || fieldDef.name;
-      if (row[dbColumn] !== undefined) {
-        instance[propertyKey] = row[dbColumn];
+    if (joins.length > 0) {
+      // Prefixed columns: main__field_name
+      for (const [propertyKey, fieldDef] of fields) {
+        const dbColumn = fieldDef.dbColumn || fieldDef.name;
+        const prefixed = `main__${dbColumn}`;
+        if (row[prefixed] !== undefined) {
+          instance[propertyKey] = row[prefixed];
+        }
       }
-    }
+      if (row.main__id !== undefined) instance.id = row.main__id as number;
+      if (row.main__created_at !== undefined) instance.createdAt = row.main__created_at as Date;
+      if (row.main__updated_at !== undefined) instance.updatedAt = row.main__updated_at as Date;
 
-    // Always map id, created_at, updated_at
-    if (row.id !== undefined) instance.id = row.id as number;
-    if (row.created_at !== undefined) instance.createdAt = row.created_at as Date;
-    if (row.updated_at !== undefined) instance.updatedAt = row.updated_at as Date;
+      // Hydrate eager-loaded relations
+      for (const j of joins) {
+        const targetModel = getModel(
+          typeof j.relation.targetModel === 'function'
+            ? j.relation.targetModel()
+            : j.relation.targetModel
+        );
+        if (!targetModel) continue;
+
+        // Check if the join has data (not all nulls from LEFT JOIN)
+        const hasData = row[`${j.alias}__id`] !== null;
+        if (!hasData) {
+          instance[j.relation.propertyKey] = null;
+          continue;
+        }
+
+        const relInstance = new targetModel() as unknown as Record<string, unknown>;
+        for (const [, fieldDef] of targetModel.fields) {
+          const dbColumn = fieldDef.dbColumn || fieldDef.name;
+          const prefixed = `${j.alias}__${dbColumn}`;
+          if (row[prefixed] !== undefined) {
+            relInstance[fieldDef.propertyKey] = row[prefixed];
+          }
+        }
+        relInstance.id = row[`${j.alias}__id`] as number;
+        if (row[`${j.alias}__created_at`] !== undefined)
+          relInstance.createdAt = row[`${j.alias}__created_at`] as Date;
+        if (row[`${j.alias}__updated_at`] !== undefined)
+          relInstance.updatedAt = row[`${j.alias}__updated_at`] as Date;
+
+        instance[j.relation.propertyKey] = relInstance as unknown as Model;
+      }
+    } else {
+      // No joins — simple hydration (existing behavior)
+      for (const [propertyKey, fieldDef] of fields) {
+        const dbColumn = fieldDef.dbColumn || fieldDef.name;
+        if (row[dbColumn] !== undefined) {
+          instance[propertyKey] = row[dbColumn];
+        }
+      }
+      if (row.id !== undefined) instance.id = row.id as number;
+      if (row.created_at !== undefined) instance.createdAt = row.created_at as Date;
+      if (row.updated_at !== undefined) instance.updatedAt = row.updated_at as Date;
+    }
 
     return instance as unknown as T;
   }
@@ -449,12 +632,48 @@ export class ModelManager {
 
   /**
    * Delete a model instance.
+   * Respects cascade delete from ForeignKey onDelete option.
    */
   static async delete<T extends Model>(instance: T): Promise<void> {
     const modelClass = instance.constructor as ModelClass<T>;
     if (!instance.id) {
       throw new Error('Cannot delete an unsaved instance.');
     }
+
+    // Cascade delete: find models that have FK pointing at this model
+    const { getAllModels } = await import('./registry.js');
+    const allModels = getAllModels();
+
+    for (const [, otherModel] of allModels) {
+      const relations = otherModel.relations;
+      if (!relations) continue;
+
+      for (const [, rel] of relations) {
+        if (rel.type !== 'foreignKey') continue;
+
+        const targetName = typeof rel.targetModel === 'function' ? rel.targetModel() : rel.targetModel;
+        if (targetName !== modelClass._modelName) continue;
+
+        const fkColumn = rel.foreignKeyColumn;
+        if (!fkColumn) continue;
+
+        if (rel.onDelete === 'CASCADE') {
+          // Delete all related records
+          await query(
+            `DELETE FROM "${otherModel.tableName}" WHERE "${fkColumn}" = $1`,
+            [instance.id]
+          );
+        } else if (rel.onDelete === 'SET NULL') {
+          // Set FK to null
+          await query(
+            `UPDATE "${otherModel.tableName}" SET "${fkColumn}" = NULL WHERE "${fkColumn}" = $1`,
+            [instance.id]
+          );
+        }
+        // RESTRICT / NO ACTION: let the DB enforce the constraint
+      }
+    }
+
     await query(`DELETE FROM "${modelClass.tableName}" WHERE "id" = $1`, [instance.id]);
   }
 

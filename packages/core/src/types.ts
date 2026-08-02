@@ -296,16 +296,42 @@ export abstract class Model {
 
   /**
    * Convert to plain object.
+   * Includes loaded relations (from .with()).
    */
   toJSON(): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     const fields = (this.constructor as typeof Model).fields;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const relations = (this.constructor as typeof Model).relations;
+
+    // Regular fields
     for (const [key] of fields) {
       result[key] = (this as Record<string, unknown>)[key];
     }
     result.id = this.id;
     result.createdAt = this.createdAt;
     result.updatedAt = this.updatedAt;
+
+    // Loaded relations
+    if (relations) {
+      for (const [key, rel] of relations) {
+        const value = (this as Record<string, unknown>)[key];
+        if (value === undefined) continue;
+
+        if (Array.isArray(value)) {
+          result[key] = value.map((v: unknown) =>
+            v && typeof v === 'object' && 'toJSON' in v
+              ? (v as { toJSON: () => unknown }).toJSON()
+              : v
+          );
+        } else if (value && typeof value === 'object' && 'toJSON' in value) {
+          result[key] = (value as { toJSON: () => unknown }).toJSON();
+        } else {
+          result[key] = value;
+        }
+      }
+    }
+
     return result;
   }
 }
