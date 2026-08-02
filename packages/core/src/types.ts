@@ -24,7 +24,9 @@ export type FieldType =
   | 'json'
   | 'uuid'
   | 'email'
-  | 'url';
+  | 'url'
+  | 'file'
+  | 'image';
 
 export interface FieldOptions {
   type: FieldType;
@@ -44,6 +46,10 @@ export interface FieldOptions {
   helpText?: string;
   dbColumn?: string;
   validators?: Validator[];
+  // File options
+  uploadTo?: string | ((instance: unknown) => string);
+  allowedMimeTypes?: string[];
+  maxFileSize?: number; // bytes
 }
 
 export interface FieldDefinition extends FieldOptions {

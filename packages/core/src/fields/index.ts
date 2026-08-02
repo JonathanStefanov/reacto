@@ -21,6 +21,8 @@ export function fieldTypeToPgType(type: FieldType, maxLength?: number, precision
     uuid: 'UUID',
     email: maxLength ? `VARCHAR(${maxLength})` : 'VARCHAR(254)',
     url: maxLength ? `VARCHAR(${maxLength})` : 'VARCHAR(2048)',
+    file: 'TEXT',
+    image: 'TEXT',
   };
 
   return mapping[type] || 'TEXT';
