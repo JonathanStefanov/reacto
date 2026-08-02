@@ -48,6 +48,10 @@ export type {
   ModelMeta,
   ModelClass,
   ModelIndex,
+  RelationType,
+  RelationDefinition,
+  ForeignKeyConstraint,
+  Id,
   WhereClause,
   WhereOperator,
   OrderClause,
@@ -72,7 +76,7 @@ export type {
 
 // ─── Decorators ───────────────────────────────────────────────────────────────
 
-export { Field, ModelDecorator as Model } from './decorators/index.js';
+export { Field, ModelDecorator as Model, ForeignKey, OneToOne, OneToMany, ManyToOne } from './decorators/index.js';
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 

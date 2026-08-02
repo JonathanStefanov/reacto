@@ -61,11 +61,45 @@ export interface ModelIndex {
   condition?: string;
 }
 
+// ─── Relation Types ──────────────────────────────────────────────────────────
+
+export type RelationType = 'foreignKey' | 'oneToOne' | 'oneToMany' | 'manyToOne';
+
+export interface RelationDefinition {
+  name: string;
+  type: RelationType;
+  targetModel: string | (() => string);
+  foreignKeyColumn?: string;
+  propertyKey: string;
+  nullable?: boolean;
+  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  mappedBy?: string;
+}
+
+export interface ForeignKeyConstraint {
+  type: 'foreignKey';
+  tableName: string;
+  columnName: string;
+  referenceTable: string;
+  referenceColumn: string;
+  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  constraintName?: string;
+}
+
+/**
+ * Type helper: Extract the primary key type of a model.
+ * Usage: `Id<User>` → `number` (the FK column type)
+ */
+export type Id<T> = T extends { id: infer PK } ? PK : number;
+
 export type ModelClass<T extends Model = Model> = {
   new (...args: unknown[]): T;
   meta: ModelMeta;
   tableName: string;
   fields: Map<string, FieldDefinition>;
+  relations: Map<string, RelationDefinition>;
   _modelName: string;
 };
 
@@ -129,7 +163,8 @@ export type MigrationOperation =
   | CreateIndexOperation
   | DropIndexOperation
   | RenameTableOperation
-  | RenameColumnOperation;
+  | RenameColumnOperation
+  | ForeignKeyConstraint;
 
 export interface CreateTableOperation {
   type: 'createTable';
@@ -231,6 +266,7 @@ export abstract class Model {
 
   static meta: ModelMeta;
   static fields: Map<string, FieldDefinition>;
+  static relations: Map<string, RelationDefinition>;
   static _modelName: string;
   static tableName: string;
 
@@ -260,16 +296,42 @@ export abstract class Model {
 
   /**
    * Convert to plain object.
+   * Includes loaded relations (from .with()).
    */
   toJSON(): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     const fields = (this.constructor as typeof Model).fields;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const relations = (this.constructor as typeof Model).relations;
+
+    // Regular fields
     for (const [key] of fields) {
       result[key] = (this as Record<string, unknown>)[key];
     }
     result.id = this.id;
     result.createdAt = this.createdAt;
     result.updatedAt = this.updatedAt;
+
+    // Loaded relations
+    if (relations) {
+      for (const [key, rel] of relations) {
+        const value = (this as Record<string, unknown>)[key];
+        if (value === undefined) continue;
+
+        if (Array.isArray(value)) {
+          result[key] = value.map((v: unknown) =>
+            v && typeof v === 'object' && 'toJSON' in v
+              ? (v as { toJSON: () => unknown }).toJSON()
+              : v
+          );
+        } else if (value && typeof value === 'object' && 'toJSON' in value) {
+          result[key] = (value as { toJSON: () => unknown }).toJSON();
+        } else {
+          result[key] = value;
+        }
+      }
+    }
+
     return result;
   }
 }

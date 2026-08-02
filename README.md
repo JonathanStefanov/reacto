@@ -62,6 +62,13 @@ const users = await ModelManager.objects(User)
   .limit(10)
   .all();
 
+// Eager loading — solves N+1 query problem
+const posts = await ModelManager.objects(Post)
+  .filter({ published: true })
+  .with('author')           // LEFT JOIN → author loaded in same query
+  .all();
+console.log(posts[0].author);  // already loaded, no extra query
+
 // Fluent query builder
 const results = await qb('users')
   .select('name', 'email')
@@ -70,6 +77,21 @@ const results = await qb('users')
   .limit(10)
   .execute();
 ```
+
+## Cascade Delete
+
+Foreign key relations support cascade behavior:
+
+```typescript
+@ForeignKey(() => User, { onDelete: 'CASCADE' })
+author: Id<User>;
+
+// When you delete a user, all their posts are deleted automatically
+const user = await ModelManager.objects(User).get({ id: 1 });
+await user.delete();  // also deletes all posts where author_id = 1
+```
+
+Options: `CASCADE`, `SET NULL`, `RESTRICT`, `NO ACTION` (default: `CASCADE`)
 
 ## Auto-generated API
 
@@ -82,9 +104,36 @@ Your models automatically get REST endpoints:
 | `GET` | `/api/users/:id` | Retrieve |
 | `PUT` | `/api/users/:id` | Update |
 | `PATCH` | `/api/users/:id` | Partial update |
-| `DELETE` | `/api/users/:id` | Delete |
+| `DELETE` | `/api/users/:id` | Delete (respects cascade) |
 | `GET` | `/api/users/count` | Count |
 | `POST` | `/api/users/bulk` | Bulk create |
+
+### Nested Relation Routes
+
+Relations auto-generate nested endpoints:
+
+```bash
+# ForeignKey: GET /:id/<relation> → get related object
+GET  /api/posts/1/author     → the author of post 1
+
+# OneToMany: GET /:id/<relation> → list related objects
+GET  /api/users/1/posts      → all posts by user 1
+
+# OneToMany: POST /:id/<relation> → create with FK set
+POST /api/users/1/posts      → create post with author=user 1
+```
+
+### Eager Loading via API
+
+Add `?with=` to include related objects in the response:
+
+```bash
+GET /api/posts?with=author
+# → [{ "title": "Hello", "author": { "username": "john" } }]
+
+GET /api/posts/1?with=author
+# → { "title": "Hello", "author": { "username": "john" } }
+```
 
 ## CLI Commands
 

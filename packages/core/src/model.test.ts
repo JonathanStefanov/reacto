@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { QuerySet } from './model.js';
-import type { ModelClass, WhereClause } from './types.js';
+import type { ModelClass, RelationDefinition } from './types.js';
 import { Model } from './types.js';
-
-// We need to access the private negateOperator function.
-// Since it's not exported, we test it indirectly through QuerySet.exclude().
-// We also create a minimal mock model class for testing.
 
 function createMockModelClass(): ModelClass {
   class MockModel extends Model {
@@ -96,6 +92,7 @@ describe('QuerySet', () => {
     it('creates a new QuerySet with offset', () => {
       const qs = new QuerySet(MockModel);
       const offset = qs.offset(20);
+      expect(offset).not.toBe(qs);
       expect(offset).toBeInstanceOf(QuerySet);
     });
   });
@@ -105,6 +102,32 @@ describe('QuerySet', () => {
       const qs = new QuerySet(MockModel);
       const selected = qs.select('name', 'age');
       expect(selected).toBeInstanceOf(QuerySet);
+    });
+  });
+
+  describe('with', () => {
+    it('creates a new QuerySet with eager relations', () => {
+      const qs = new QuerySet(MockModel);
+      const withRelations = qs.with('name');
+      expect(withRelations).not.toBe(qs);
+      expect(withRelations).toBeInstanceOf(QuerySet);
+    });
+
+    it('supports multiple relations', () => {
+      const qs = new QuerySet(MockModel);
+      const withRelations = qs.with('name', 'age');
+      expect(withRelations).toBeInstanceOf(QuerySet);
+    });
+
+    it('preserves eager relations across chaining', () => {
+      const qs = new QuerySet(MockModel);
+      const chained = qs
+        .with('name')
+        .filter({ age: 18 })
+        .orderBy('name')
+        .limit(10);
+
+      expect(chained).toBeInstanceOf(QuerySet);
     });
   });
 
@@ -121,23 +144,26 @@ describe('QuerySet', () => {
 
       expect(result).toBeInstanceOf(QuerySet);
     });
+
+    it('supports with() in fluent chain', () => {
+      const qs = new QuerySet(MockModel);
+      const result = qs
+        .filter({ name: 'John' })
+        .with('name')
+        .orderBy('-name')
+        .limit(10);
+
+      expect(result).toBeInstanceOf(QuerySet);
+    });
   });
 });
 
 describe('negateOperator (indirect via exclude)', () => {
-  // We test that exclude inverts filter conditions.
-  // The private negateOperator maps:
-  //   eq ↔ neq, gt ↔ lte, gte ↔ lt, lt ↔ gte, lte ↔ gt
-  // We can't test the function directly, but we verify exclude produces
-  // a different QuerySet than filter (which we already did above).
-  // A more thorough test would require SQL output inspection.
-
   it('exclude produces a different QuerySet than filter', () => {
     const MockModel = createMockModelClass();
     const qs = new QuerySet(MockModel);
     const filtered = qs.filter({ age: 18 });
     const excluded = qs.exclude({ age: 18 });
-    // They should not be the same object
     expect(filtered).not.toBe(excluded);
   });
 });
