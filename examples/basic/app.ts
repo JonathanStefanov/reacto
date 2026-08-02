@@ -1,156 +1,170 @@
 /**
- * Reacto Example App — Full-featured blog with real-time updates
- *
- * Features demonstrated:
- *   - Models with relations (@ForeignKey, @OneToMany)
- *   - Field validators (required, minLength, email)
- *   - Signals (pre_save, post_save)
- *   - Auth middleware (JWT)
- *   - WebSocket real-time subscriptions
- *   - Eager loading (.with())
- *   - Nested routes
- *   - Cascade delete
- *
- * Run: npx tsx examples/basic/app.ts
+ * Reacto Basic Example — Blog with relations, validators, signals, auth
  */
 import 'reflect-metadata';
 import {
   Model,
+  ModelDecor,
   Field,
   ForeignKey,
   OneToMany,
+  Signal,
   configureDatabase,
   ModelManager,
-  generateMigrations,
-  applyMigrations,
-  preSave,
-  postSave,
+} from '@reacto/core';
+import {
   required,
   minLength,
-  email as emailValidator,
-} from '@reacto/core';
-import type { Id } from '@reacto/core';
+  maxLength,
+  email,
+} from '@reacto/core/src/validators/index.js';
+import { runSignal } from '@reacto/core/src/signals/index.js';
 import {
-  createServer,
-  authMiddleware,
-  requireAuth,
   signJwt,
-} from '@reacto/server';
+  verifyJwt,
+  authMiddleware,
+  hashPassword,
+  verifyPassword,
+} from '@reacto/server/src/middleware/auth.js';
+import { createServer, startServer } from '@reacto/server';
+
+// ─── Database ─────────────────────────────────────────────────────────────────
+
+configureDatabase({
+  host: process.env.DB_HOST ?? 'localhost',
+  port: parseInt(process.env.DB_PORT ?? '5432'),
+  database: process.env.DB_NAME ?? 'reacto_example',
+  user: process.env.DB_USER ?? 'postgres',
+  password: process.env.DB_PASS ?? 'postgres',
+});
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
-@Model()
+@ModelDecor({ tableName: 'users' })
 class User extends Model {
   @Field({ type: 'string', maxLength: 150, unique: true, validators: [required(), minLength(3)] })
-  username: string;
+  username!: string;
 
-  @Field({ type: 'email', validators: [required(), emailValidator()] })
-  email: string;
+  @Field({ type: 'email', validators: [required(), email()] })
+  email!: string;
 
-  @Field({ type: 'string', maxLength: 255, validators: [required(), minLength(8)] })
-  password: string;
+  @Field({ type: 'string', nullable: true })
+  passwordHash?: string;
 
   @Field({ type: 'boolean', default: true })
-  isActive: boolean;
+  isActive!: boolean;
 
-  @OneToMany(() => Post, { mappedBy: 'author' })
-  posts: Post[];
+  @OneToMany(() => Post, 'author')
+  posts!: Post[];
+
+  @Signal('preSave')
+  async hashPassword() {
+    if (this.passwordHash && !this.passwordHash.startsWith('scrypt:')) {
+      this.passwordHash = await hashPassword(this.passwordHash);
+    }
+  }
 }
 
-@Model()
+@ModelDecor({ tableName: 'posts' })
 class Post extends Model {
-  @Field({ type: 'string', maxLength: 255, validators: [required(), minLength(1)] })
-  title: string;
+  @Field({ type: 'string', maxLength: 200, validators: [required(), minLength(5)] })
+  title!: string;
 
   @Field({ type: 'text', validators: [required()] })
-  content: string;
+  content!: string;
 
-  @Field({ type: 'boolean', default: false })
-  published: boolean;
+  @Field({ type: 'boolean', default: true })
+  published!: boolean;
+
+  @ForeignKey(() => User, { inverseSide: 'posts', onDelete: 'CASCADE' })
+  authorId!: number;
+
+  author?: User;
+}
+
+@ModelDecor({ tableName: 'comments' })
+class Comment extends Model {
+  @Field({ type: 'text', validators: [required(), minLength(1)] })
+  body!: string;
+
+  @ForeignKey(() => Post, { onDelete: 'CASCADE' })
+  postId!: number;
 
   @ForeignKey(() => User, { onDelete: 'CASCADE' })
-  author: Id<User>;
+  userId!: number;
 }
 
-// ─── Signals ──────────────────────────────────────────────────────────────────
-
-preSave(User, async (user) => {
-  const u = user as any;
-  if (u.password && !u.password.startsWith('$2b$')) {
-    u.password = `hashed_${u.password}`;
-  }
-});
-
-// ─── App ──────────────────────────────────────────────────────────────────────
+// ─── Usage Examples ───────────────────────────────────────────────────────────
 
 async function main() {
-  configureDatabase({
-    host: process.env.DB_HOST ?? 'localhost',
-    port: parseInt(process.env.DB_PORT ?? '5432'),
-    database: process.env.DB_NAME ?? 'reacto_example',
-    user: process.env.DB_USER ?? 'postgres',
-    password: process.env.DB_PASS ?? 'postgres',
+  // Create a user
+  const user = await ModelManager.create(User, {
+    username: 'alice',
+    email: 'alice@example.com',
+    passwordHash: 'secret123', // Will be hashed by preSave signal
+  });
+  console.log('Created user:', user.toJSON());
+
+  // Create posts
+  const post1 = await ModelManager.create(Post, {
+    title: 'Hello World',
+    content: 'My first post!',
+    authorId: user.id,
   });
 
-  console.log('\n📦 Running migrations...\n');
-  const migrations = await generateMigrations();
-  await applyMigrations(migrations);
-
-  const JWT_SECRET = process.env.JWT_SECRET ?? 'super-secret-key-change-me';
-
-  // Create server with WebSocket enabled
-  const { app, server, ws } = createServer({
-    basePath: '/api',
-    cors: { origin: '*' },
-    websocket: {
-      authenticate: async (token) => {
-        try {
-          const payload = require('jsonwebtoken').verify(token, JWT_SECRET);
-          return { userId: payload.sub };
-        } catch {
-          return null;
-        }
-      },
-    },
+  const post2 = await ModelManager.create(Post, {
+    title: 'Second Post',
+    content: 'More great content.',
+    authorId: user.id,
   });
 
-  // Auth middleware
-  app.use(authMiddleware({ secret: JWT_SECRET }));
+  // Eager load: get user with all posts
+  const userWithPosts = await ModelManager.objects(User)
+    .with('posts')
+    .get({ id: user.id });
+  console.log('User with posts:', userWithPosts.toJSON());
 
-  // Login endpoint
-  app.post('/api/auth/login', async (req, res) => {
-    const { username, password } = req.body;
-    try {
-      const user = await ModelManager.objects(User).get({ username });
-      if ((user as any).password !== `hashed_${password}`) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-      const token = signJwt({ sub: user.id, username }, JWT_SECRET, 86400);
-      res.json({ token, user: user.toJSON() });
-    } catch {
-      res.status(401).json({ error: 'Invalid credentials' });
+  // Filter posts
+  const myPosts = await ModelManager.objects(Post)
+    .filter({ authorId: user.id })
+    .orderBy('-createdAt')
+    .all();
+  console.log('My posts:', myPosts.length);
+
+  // Pagination
+  const page1 = await ModelManager.objects(Post)
+    .paginate(1, 10)
+    .all();
+  console.log('Page 1:', page1.length);
+
+  // Cascade delete: deleting user deletes their posts
+  await user.delete();
+  const remainingPosts = await ModelManager.objects(Post).count();
+  console.log('Posts after user deletion:', remainingPosts); // 0
+
+  // JWT Auth
+  const token = signJwt({ sub: 1, email: 'alice@example.com' }, 'my-secret');
+  const payload = verifyJwt(token, 'my-secret');
+  console.log('JWT payload:', payload);
+
+  // Password verification
+  const hash = await hashPassword('my-password');
+  console.log('Valid password:', await verifyPassword('my-password', hash));
+  console.log('Wrong password:', await verifyPassword('wrong', hash));
+
+  // Validation error handling
+  try {
+    await ModelManager.create(User, { username: '', email: 'bad-email' });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'ValidationError') {
+      console.log('Validation errors:', (err as { errors: unknown }).errors);
     }
-  });
-
-  // Protected endpoint
-  app.get('/api/auth/me', requireAuth(), async (req, res) => {
-    const user = await ModelManager.objects(User).get({ id: Number(req.user!.sub) });
-    res.json({ user: user.toJSON() });
-  });
-
-  // Start server
-  const port = parseInt(process.env.PORT ?? '3000');
-  server.listen(port, () => {
-    console.log(`\n⚡ Reacto example running at http://localhost:${port}`);
-    console.log(`   WebSocket: ws://localhost:${port}/ws`);
-    console.log(`\n📡 REST API:`);
-    console.log(`   GET    /api/posts?with=author   → List posts with author`);
-    console.log(`   GET    /api/users/:id/posts     → User's posts`);
-    console.log(`   POST   /api/auth/login          → Login (get JWT)`);
-    console.log(`\n🔌 WebSocket (connect with ?token=JWT):`);
-    console.log(`   Subscribe: { "type": "subscribe", "channel": "posts" }`);
-    console.log(`   Events:    { "type": "created", "model": "Post", "data": {...} }\n`);
-  });
+  }
 }
 
-main().catch(console.error);
+// Run if executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(console.error);
+}
+
+export { User, Post, Comment };

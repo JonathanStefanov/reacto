@@ -1,208 +1,173 @@
 /**
- * @reacto/server — JWT Authentication middleware
+ * Reacto Server — JWT Auth Middleware
  *
- * Usage:
- *   app.use(authMiddleware({ secret: 'my-secret' }));
- *   app.use('/admin', requireAuth());
- *   app.use('/api', optionalAuth());
+ * Provides JWT-based authentication:
+ *   app.use('/api', authMiddleware);
+ *   app.post('/api/login', loginHandler(User));
  */
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import crypto from 'node:crypto';
 
-export interface AuthConfig {
-  /** JWT secret key */
-  secret: string;
-  /** Token extraction method. Default: 'header' */
-  tokenFrom?: 'header' | 'cookie' | 'query';
-  /** Cookie name when tokenFrom is 'cookie'. Default: 'token' */
-  cookieName?: string;
-  /** Header name when tokenFrom is 'header'. Default: 'Authorization' */
-  headerName?: string;
-  /** Query param name when tokenFrom is 'query'. Default: 'token' */
-  queryParam?: string;
-}
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface JwtPayload {
-  sub: string | number;
-  iat?: number;
-  exp?: number;
+  sub: number;
+  email?: string;
   [key: string]: unknown;
 }
 
-// ─── Simple JWT implementation (no external deps) ────────────────────────────
+export interface AuthOptions {
+  secret?: string;
+  expiresIn?: number; // seconds, default 86400 (24h)
+}
 
-function base64UrlEncode(data: string): string {
+// ─── JWT Implementation (no external deps) ────────────────────────────────────
+
+function base64url(data: Buffer | string): string {
   return Buffer.from(data)
     .toString('base64')
+    .replace(/=/g, '')
     .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .replace(/\//g, '_');
 }
 
-function base64UrlDecode(data: string): string {
-  const padded = data.replace(/-/g, '+').replace(/_/g, '/');
-  return Buffer.from(padded, 'base64').toString('utf-8');
-}
-
-function hmacSha256(data: string, secret: string): string {
-  const crypto = require('crypto');
-  return crypto
-    .createHmac('sha256', secret)
-    .update(data)
-    .digest('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+function base64urlDecode(str: string): Buffer {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return Buffer.from(str, 'base64');
 }
 
 /**
  * Sign a JWT token.
  */
-export function signJwt(payload: JwtPayload, secret: string, expiresIn: number = 3600): string {
+export function signJwt(payload: JwtPayload, secret: string, expiresIn = 86400): string {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
+  const claims = { ...payload, iat: now, exp: now + expiresIn };
 
-  const fullPayload: JwtPayload = {
-    ...payload,
-    iat: now,
-    exp: now + expiresIn,
-  };
+  const headerB64 = base64url(JSON.stringify(header));
+  const claimsB64 = base64url(JSON.stringify(claims));
+  const signature = crypto
+    .createHmac('sha256', secret)
+    .update(`${headerB64}.${claimsB64}`)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
 
-  const headerEncoded = base64UrlEncode(JSON.stringify(header));
-  const payloadEncoded = base64UrlEncode(JSON.stringify(fullPayload));
-  const signature = hmacSha256(`${headerEncoded}.${payloadEncoded}`, secret);
-
-  return `${headerEncoded}.${payloadEncoded}.${signature}`;
+  return `${headerB64}.${claimsB64}.${signature}`;
 }
 
 /**
- * Verify and decode a JWT token.
+ * Verify a JWT token. Returns payload or throws.
  */
 export function verifyJwt(token: string, secret: string): JwtPayload {
   const parts = token.split('.');
   if (parts.length !== 3) {
-    throw new Error('Invalid token format');
+    throw new Error('Invalid JWT format');
   }
 
-  const [headerEncoded, payloadEncoded, signature] = parts;
-  const expectedSignature = hmacSha256(`${headerEncoded}.${payloadEncoded}`, secret);
+  const [headerB64, claimsB64, signature] = parts;
 
-  if (signature !== expectedSignature) {
-    throw new Error('Invalid token signature');
+  // Verify signature
+  const expectedSig = crypto
+    .createHmac('sha256', secret)
+    .update(`${headerB64}.${claimsB64}`)
+    .digest('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
+
+  if (signature !== expectedSig) {
+    throw new Error('Invalid JWT signature');
   }
 
-  const payload: JwtPayload = JSON.parse(base64UrlDecode(payloadEncoded));
+  // Decode claims
+  const claims = JSON.parse(base64urlDecode(claimsB64).toString());
 
-  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-    throw new Error('Token expired');
+  // Check expiration
+  if (claims.exp && claims.exp < Math.floor(Date.now() / 1000)) {
+    throw new Error('JWT expired');
   }
 
-  return payload;
+  return claims as JwtPayload;
 }
 
-// ─── Express Middleware ───────────────────────────────────────────────────────
-
-// Extend Express Request type
-// eslint-disable-next-line @typescript-eslint/no-namespace
-declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
-  namespace Express {
-    interface Request {
-      user?: JwtPayload;
-    }
-  }
-}
+// ─── Middleware ────────────────────────────────────────────────────────────────
 
 /**
- * Extract token from request.
+ * Express middleware that validates JWT from Authorization header.
+ *
+ * Sets req.user to the decoded payload.
  */
-function extractToken(req: Request, config: AuthConfig): string | null {
-  const tokenFrom = config.tokenFrom ?? 'header';
-
-  switch (tokenFrom) {
-    case 'header': {
-      const headerName = config.headerName ?? 'Authorization';
-      const authHeader = req.headers[headerName.toLowerCase()];
-      if (!authHeader || typeof authHeader !== 'string') return null;
-      if (authHeader.startsWith('Bearer ')) return authHeader.slice(7);
-      return authHeader;
-    }
-    case 'cookie': {
-      const cookieName = config.cookieName ?? 'token';
-      return (req.cookies?.[cookieName] as string) ?? null;
-    }
-    case 'query': {
-      const queryParam = config.queryParam ?? 'token';
-      const val = req.query[queryParam];
-      return typeof val === 'string' ? val : null;
-    }
-    default:
-      return null;
-  }
-}
-
-/**
- * Auth middleware — attaches user to request if token is present.
- * Does NOT reject unauthenticated requests (use requireAuth for that).
- */
-export function authMiddleware(config: AuthConfig) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
-    const token = extractToken(req, config);
-    if (token) {
-      try {
-        req.user = verifyJwt(token, config.secret);
-      } catch {
-        // Invalid token — user stays undefined
-      }
-    }
-    next();
-  };
-}
-
-/**
- * Require authentication — returns 401 if no valid token.
- */
-export function requireAuth() {
+export function authMiddleware(secret: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({ error: 'Authentication required' });
-      return;
-    }
-    next();
-  };
-}
+    const authHeader = req.headers.authorization;
 
-/**
- * Optional authentication — proceeds regardless, but attaches user if present.
- * This is the same as authMiddleware behavior, provided for explicitness.
- */
-export function optionalAuth() {
-  return (_req: Request, _res: Response, next: NextFunction): void => {
-    next();
-  };
-}
-
-/**
- * Require specific user properties.
- */
-export function requireProperty(property: string, value?: unknown) {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({ error: 'Authentication required' });
+    if (!authHeader?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid Authorization header' });
       return;
     }
 
-    if (value !== undefined) {
-      if (req.user[property] !== value) {
-        res.status(403).json({ error: 'Forbidden' });
-        return;
-      }
-    } else {
-      if (!(property in req.user)) {
-        res.status(403).json({ error: 'Forbidden' });
-        return;
-      }
+    const token = authHeader.slice(7);
+
+    try {
+      const payload = verifyJwt(token, secret);
+      (req as Request & { user?: JwtPayload }).user = payload;
+      next();
+    } catch {
+      res.status(401).json({ error: 'Invalid or expired token' });
+    }
+  };
+}
+
+/**
+ * Middleware that requires a specific role.
+ */
+export function requireRole(role: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const user = (req as Request & { user?: JwtPayload }).user;
+    if (!user) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const roles = (user.roles as string[]) ?? [];
+    if (!roles.includes(role)) {
+      res.status(403).json({ error: `Requires role: ${role}` });
+      return;
     }
 
     next();
   };
+}
+
+// ─── Password Hashing (argon2id via crypto) ──────────────────────────────────
+
+/**
+ * Hash a password using scrypt (built-in, no deps).
+ */
+export async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (err, key) => {
+      if (err) reject(err);
+      else resolve(key as Buffer);
+    });
+  });
+  return `scrypt:${salt}:${derived.toString('hex')}`;
+}
+
+/**
+ * Verify a password against a scrypt hash.
+ */
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  const [, salt, storedHash] = hash.split(':');
+  const derived = await new Promise<Buffer>((resolve, reject) => {
+    crypto.scrypt(password, salt, 64, (err, key) => {
+      if (err) reject(err);
+      else resolve(key as Buffer);
+    });
+  });
+  return derived.toString('hex') === storedHash;
 }

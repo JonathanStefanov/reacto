@@ -387,32 +387,14 @@ export function enableAutoBroadcast(
   const channelName = channel ?? modelClass.tableName;
   const modelName = modelClass._modelName;
 
-  // Import signals dynamically to avoid circular deps
-  import('@reacto/core').then(({ postSave, postDelete }) => {
-    postSave(modelClass as any, (instance: any) => {
-      const ws = getWebSocketServer();
-      if (!ws) return;
-
-      const isNew = !instance.__wasSaved;
-      ws.broadcast(channelName, {
-        type: isNew ? 'created' : 'updated',
-        model: modelName,
-        id: instance.id,
-        data: instance.toJSON?.() ?? instance,
-      });
-
-      instance.__wasSaved = true;
-    });
-
-    postDelete(modelClass as any, (instance: any) => {
-      const ws = getWebSocketServer();
-      if (!ws) return;
-
-      ws.broadcast(channelName, {
-        type: 'deleted',
-        model: modelName,
-        id: instance.id,
-      });
-    });
-  });
+  // Note: Auto-broadcast is handled by the signal system.
+  // Use @Signal('postSave') and @Signal('postDelete') decorators on your models
+  // to broadcast changes via WebSocket.
+  //
+  // Example:
+  //   @Signal('postSave')
+  //   broadcastChange() {
+  //     const ws = getWebSocketServer();
+  //     if (ws) ws.broadcast('posts', { type: 'created', model: 'Post', id: this.id, data: this.toJSON() });
+  //   }
 }

@@ -1,93 +1,37 @@
 /**
- * Reacto — Signal system (Django-style lifecycle hooks)
+ * Reacto — Signals (Lifecycle Hooks)
  *
- * Usage:
- *   preSave(User, async (instance) => { ... });
- *   postSave(User, async (instance) => { ... });
- *   preDelete(User, async (instance) => { ... });
- *   postDelete(User, async (instance) => { ... });
+ * Execute pre/post save/delete hooks on model instances.
+ *
+ *   @Signal('preSave')
+ *   hashPassword() { this.password = hash(this.password); }
  */
-import type { Model, ModelClass } from '../types.js';
-
-export type SignalType = 'pre_save' | 'post_save' | 'pre_delete' | 'post_delete';
-
-export type SignalHandler<T extends Model = Model> = (instance: T) => Promise<void> | void;
-
-interface SignalEntry {
-  modelClassName: string;
-  handler: SignalHandler;
-}
-
-const signals = new Map<SignalType, SignalEntry[]>();
-
-// ─── Register signals ─────────────────────────────────────────────────────────
-
-function addSignal(type: SignalType, modelClass: ModelClass, handler: SignalHandler): void {
-  const entries = signals.get(type) ?? [];
-  entries.push({ modelClassName: modelClass._modelName, handler });
-  signals.set(type, entries);
-}
+import type { SignalType, SignalHandler, ModelClass, Model } from '../types.js';
 
 /**
- * Register a pre_save signal.
- * Fires before create() or save() writes to the database.
+ * Run all handlers for a signal type on a model instance.
  */
-export function preSave<T extends Model>(modelClass: ModelClass<T>, handler: SignalHandler<T>): void {
-  addSignal('pre_save', modelClass, handler as SignalHandler);
-}
-
-/**
- * Register a post_save signal.
- * Fires after create() or save() writes to the database.
- */
-export function postSave<T extends Model>(modelClass: ModelClass<T>, handler: SignalHandler<T>): void {
-  addSignal('post_save', modelClass, handler as SignalHandler);
-}
-
-/**
- * Register a pre_delete signal.
- * Fires before delete() removes from the database.
- */
-export function preDelete<T extends Model>(modelClass: ModelClass<T>, handler: SignalHandler<T>): void {
-  addSignal('pre_delete', modelClass, handler as SignalHandler);
-}
-
-/**
- * Register a post_delete signal.
- * Fires after delete() removes from the database.
- */
-export function postDelete<T extends Model>(modelClass: ModelClass<T>, handler: SignalHandler<T>): void {
-  addSignal('post_delete', modelClass, handler as SignalHandler);
-}
-
-// ─── Fire signals ─────────────────────────────────────────────────────────────
-
-/**
- * Fire a signal for a model instance.
- */
-export async function fireSignal(type: SignalType, instance: Model): Promise<void> {
-  const entries = signals.get(type);
-  if (!entries) return;
-
-  const modelName = (instance.constructor as ModelClass)._modelName;
-
-  for (const entry of entries) {
-    if (entry.modelClassName === modelName) {
-      await entry.handler(instance);
-    }
+export async function runSignal<T extends Model>(
+  modelClass: ModelClass<T>,
+  type: SignalType,
+  instance: T
+): Promise<void> {
+  const handlers = modelClass.signals.get(type) ?? [];
+  for (const handler of handlers) {
+    await handler.call(instance, instance);
   }
 }
 
 /**
- * Clear all registered signals (for testing).
+ * Get all registered signal handlers for a model.
  */
-export function clearSignals(): void {
-  signals.clear();
+export function getSignals(modelClass: ModelClass): Map<SignalType, SignalHandler[]> {
+  return modelClass.signals;
 }
 
 /**
- * Get registered signal count (for testing).
+ * Clear all signals for a model (useful for testing).
  */
-export function getSignalCount(type: SignalType): number {
-  return signals.get(type)?.length ?? 0;
+export function clearSignals(modelClass: ModelClass): void {
+  modelClass.signals.clear();
 }

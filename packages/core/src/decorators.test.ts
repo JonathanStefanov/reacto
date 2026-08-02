@@ -3,7 +3,6 @@ import 'reflect-metadata';
 import { Field, ModelDecorator, ForeignKey, OneToMany, OneToOne } from './decorators/index.js';
 import { clearRegistry, getModel } from './registry.js';
 import { Model } from './types.js';
-import type { Id } from './types.js';
 
 describe('decorators', () => {
   beforeEach(() => {
@@ -139,40 +138,19 @@ describe('decorators', () => {
       expect(fields.has('title')).toBe(true);
     });
 
-    it('auto-derives tableName from class name when not provided', () => {
-      @ModelDecorator()
-      class Post extends Model {
-        @Field({ type: 'string' })
-        title!: string;
-      }
-
-      expect((Post as any).tableName).toBe('posts');
-      expect((Post as any).meta.tableName).toBe('posts');
-    });
-
-    it('auto-derives tableName for multi-word class names', () => {
-      @ModelDecorator()
-      class BlogPost extends Model {
-        @Field({ type: 'string' })
-        title!: string;
-      }
-
-      expect((BlogPost as any).tableName).toBe('blog_posts');
-    });
-
-    it('auto-derives tableName with proper pluralization', () => {
-      @ModelDecorator()
-      class Category extends Model {
+    it('requires tableName in options', () => {
+      // tableName is required - without it, table name would be undefined
+      @ModelDecorator({ tableName: 'valid' })
+      class Valid extends Model {
         @Field({ type: 'string' })
         name!: string;
       }
-
-      expect((Category as any).tableName).toBe('categories');
+      expect((Valid as any).tableName).toBe('valid');
     });
   });
 
   describe('@ForeignKey', () => {
-    it('creates a foreign key column with default naming', () => {
+    it('creates a foreign key column with Id suffix', () => {
       @ModelDecorator({ tableName: 'users' })
       class User extends Model {
         @Field({ type: 'string' })
@@ -185,34 +163,14 @@ describe('decorators', () => {
         title!: string;
 
         @ForeignKey(() => User)
-        author!: Id<User>;
+        author!: number;
       }
 
       const fields = (Post as any).fields;
-      expect(fields.has('author')).toBe(true);
-      expect(fields.get('author').type).toBe('integer');
-      expect(fields.get('author').dbColumn).toBe('author_id');
-      expect(fields.get('author').index).toBe(true);
-    });
-
-    it('creates a foreign key column with custom dbColumn', () => {
-      @ModelDecorator({ tableName: 'users' })
-      class User extends Model {
-        @Field({ type: 'string' })
-        username!: string;
-      }
-
-      @ModelDecorator({ tableName: 'posts' })
-      class Post extends Model {
-        @Field({ type: 'string' })
-        title!: string;
-
-        @ForeignKey(() => User, { dbColumn: 'created_by' })
-        createdBy!: Id<User>;
-      }
-
-      const fields = (Post as any).fields;
-      expect(fields.get('createdBy').dbColumn).toBe('created_by');
+      // FK decorator creates field with 'Id' suffix: author → authorId
+      expect(fields.has('authorId')).toBe(true);
+      expect(fields.get('authorId').type).toBe('integer');
+      expect(fields.get('authorId').index).toBe(true);
     });
 
     it('registers the relation metadata', () => {
@@ -228,16 +186,16 @@ describe('decorators', () => {
         title!: string;
 
         @ForeignKey(() => User)
-        author!: Id<User>;
+        author!: number;
       }
 
       const relations = (Post as any).relations;
       expect(relations.has('author')).toBe(true);
       expect(relations.get('author').type).toBe('foreignKey');
-      expect(relations.get('author').foreignKeyColumn).toBe('author_id');
+      expect(relations.get('author').foreignKey).toBe('authorId');
     });
 
-    it('auto-creates an index for the FK column', () => {
+    it('stores onDelete option', () => {
       @ModelDecorator({ tableName: 'users' })
       class User extends Model {
         @Field({ type: 'string' })
@@ -249,39 +207,17 @@ describe('decorators', () => {
         @Field({ type: 'string' })
         title!: string;
 
-        @ForeignKey(() => User)
-        author!: Id<User>;
-      }
-
-      const meta = (Post as any).meta;
-      expect(meta.indexes).toBeDefined();
-      expect(meta.indexes.some((i: any) => i.fields.includes('author_id'))).toBe(true);
-    });
-
-    it('stores onDelete and onUpdate options', () => {
-      @ModelDecorator({ tableName: 'users' })
-      class User extends Model {
-        @Field({ type: 'string' })
-        username!: string;
-      }
-
-      @ModelDecorator({ tableName: 'posts' })
-      class Post extends Model {
-        @Field({ type: 'string' })
-        title!: string;
-
-        @ForeignKey(() => User, { onDelete: 'SET NULL', onUpdate: 'CASCADE' })
-        author!: Id<User>;
+        @ForeignKey(() => User, { onDelete: 'SET NULL' })
+        author!: number;
       }
 
       const relations = (Post as any).relations;
       expect(relations.get('author').onDelete).toBe('SET NULL');
-      expect(relations.get('author').onUpdate).toBe('CASCADE');
     });
   });
 
   describe('@OneToMany', () => {
-    it('registers a one-to-many relation (no column)', () => {
+    it('registers a one-to-many relation', () => {
       @ModelDecorator({ tableName: 'posts' })
       class Post extends Model {
         @Field({ type: 'string' })
@@ -293,14 +229,14 @@ describe('decorators', () => {
         @Field({ type: 'string' })
         username!: string;
 
-        @OneToMany(() => Post, { mappedBy: 'author' })
+        @OneToMany(() => Post, 'authorId')
         posts!: Post[];
       }
 
       const relations = (User as any).relations;
       expect(relations.has('posts')).toBe(true);
       expect(relations.get('posts').type).toBe('oneToMany');
-      expect(relations.get('posts').mappedBy).toBe('author');
+      expect(relations.get('posts').inverseSide).toBe('authorId');
     });
 
     it('does NOT create a database column', () => {
@@ -315,12 +251,11 @@ describe('decorators', () => {
         @Field({ type: 'string' })
         title!: string;
 
-        @OneToMany(() => Comment, { mappedBy: 'post' })
+        @OneToMany(() => Comment, 'postId')
         comments!: Comment[];
       }
 
       const fields = (Post as any).fields;
-      // 'comments' should NOT be a field (it's a relation-only)
       expect(fields.has('comments')).toBe(false);
     });
   });
@@ -338,26 +273,13 @@ describe('decorators', () => {
         @Field({ type: 'string' })
         username!: string;
 
-        @OneToOne(() => Profile, { mappedBy: 'user' })
-        profile!: Profile;
+        @OneToOne(() => Profile)
+        profileId!: number;
       }
 
       const relations = (User as any).relations;
-      expect(relations.has('profile')).toBe(true);
-      expect(relations.get('profile').type).toBe('oneToOne');
-    });
-  });
-
-  describe('Id<T> type', () => {
-    it('compiles as number (the PK type)', () => {
-      @ModelDecorator({ tableName: 'users' })
-      class User extends Model {
-        @Field({ type: 'string' })
-        username!: string;
-      }
-
-      const id: Id<User> = 42;
-      expect(typeof id).toBe('number');
+      expect(relations.has('profileId')).toBe(true);
+      expect(relations.get('profileId').type).toBe('oneToOne');
     });
   });
 
@@ -375,7 +297,7 @@ describe('decorators', () => {
         title!: string;
 
         @ForeignKey(() => User)
-        author!: Id<User>;
+        author!: number;
       }
 
       const user = new User() as any;
@@ -387,7 +309,8 @@ describe('decorators', () => {
       const post = new Post() as any;
       post.id = 1;
       post.title = 'Hello';
-      post.author = user;
+      post.author = user; // loaded relation
+      post.authorId = user.id;
       post.createdAt = new Date();
       post.updatedAt = new Date();
 
@@ -410,18 +333,19 @@ describe('decorators', () => {
         title!: string;
 
         @ForeignKey(() => User)
-        author!: Id<User>;
+        author!: number;
       }
 
       const post = new Post() as any;
       post.id = 1;
       post.title = 'Hello';
+      post.authorId = 1;
       post.createdAt = new Date();
       post.updatedAt = new Date();
 
       const json = post.toJSON();
       expect(json.title).toBe('Hello');
-      // author is undefined (not loaded), so it's included as undefined
+      // author is not loaded, so it's undefined
       expect(json.author).toBeUndefined();
     });
   });

@@ -51,6 +51,30 @@ export interface FieldDefinition extends FieldOptions {
   propertyKey: string;
 }
 
+// ─── Relation Types ───────────────────────────────────────────────────────────
+
+export type RelationType = 'foreignKey' | 'oneToMany' | 'oneToOne' | 'manyToMany';
+
+export interface RelationOptions {
+  type: RelationType;
+  target: () => ModelClass;
+  inverseSide?: string;
+  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT';
+  nullable?: boolean;
+  joinTable?: string; // for manyToMany
+}
+
+export interface RelationDefinition extends RelationOptions {
+  propertyKey: string;
+  foreignKey: string;
+}
+
+// ─── Signal Types (Lifecycle Hooks) ──────────────────────────────────────────
+
+export type SignalType = 'preSave' | 'postSave' | 'preDelete' | 'postDelete';
+
+export type SignalHandler<T extends Model = Model> = (instance: T) => void | Promise<void>;
+
 // ─── Model Types ──────────────────────────────────────────────────────────────
 
 export interface ModelMeta {
@@ -69,45 +93,13 @@ export interface ModelIndex {
   condition?: string;
 }
 
-// ─── Relation Types ──────────────────────────────────────────────────────────
-
-export type RelationType = 'foreignKey' | 'oneToOne' | 'oneToMany' | 'manyToOne';
-
-export interface RelationDefinition {
-  name: string;
-  type: RelationType;
-  targetModel: string | (() => string);
-  foreignKeyColumn?: string;
-  propertyKey: string;
-  nullable?: boolean;
-  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
-  onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
-  mappedBy?: string;
-}
-
-export interface ForeignKeyConstraint {
-  type: 'foreignKey';
-  tableName: string;
-  columnName: string;
-  referenceTable: string;
-  referenceColumn: string;
-  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
-  onUpdate?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
-  constraintName?: string;
-}
-
-/**
- * Type helper: Extract the primary key type of a model.
- * Usage: `Id<User>` → `number` (the FK column type)
- */
-export type Id<T> = T extends { id: infer PK } ? PK : number;
-
 export type ModelClass<T extends Model = Model> = {
   new (...args: unknown[]): T;
   meta: ModelMeta;
   tableName: string;
   fields: Map<string, FieldDefinition>;
   relations: Map<string, RelationDefinition>;
+  signals: Map<SignalType, SignalHandler[]>;
   _modelName: string;
 };
 
@@ -172,7 +164,8 @@ export type MigrationOperation =
   | DropIndexOperation
   | RenameTableOperation
   | RenameColumnOperation
-  | ForeignKeyConstraint;
+  | AddForeignKeyOperation
+  | DropForeignKeyOperation;
 
 export interface CreateTableOperation {
   type: 'createTable';
@@ -230,6 +223,21 @@ export interface RenameColumnOperation {
   newColumnName: string;
 }
 
+export interface AddForeignKeyOperation {
+  type: 'addForeignKey';
+  tableName: string;
+  columnName: string;
+  referencesTable: string;
+  referencesColumn: string;
+  onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT';
+}
+
+export interface DropForeignKeyOperation {
+  type: 'dropForeignKey';
+  tableName: string;
+  constraintName: string;
+}
+
 export interface ColumnDefinition {
   name: string;
   type: string;
@@ -241,6 +249,11 @@ export interface ColumnDefinition {
   maxLength?: number;
   precision?: number;
   scale?: number;
+  foreignKey?: {
+    table: string;
+    column: string;
+    onDelete?: 'CASCADE' | 'SET NULL' | 'RESTRICT';
+  };
 }
 
 export interface Migration {
@@ -275,6 +288,7 @@ export abstract class Model {
   static meta: ModelMeta;
   static fields: Map<string, FieldDefinition>;
   static relations: Map<string, RelationDefinition>;
+  static signals: Map<SignalType, SignalHandler[]>;
   static _modelName: string;
   static tableName: string;
 
@@ -304,42 +318,23 @@ export abstract class Model {
 
   /**
    * Convert to plain object.
-   * Includes loaded relations (from .with()).
    */
   toJSON(): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     const fields = (this.constructor as typeof Model).fields;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const relations = (this.constructor as typeof Model).relations;
-
-    // Regular fields
     for (const [key] of fields) {
       result[key] = (this as Record<string, unknown>)[key];
+    }
+    // Include loaded relations
+    const relations = (this.constructor as typeof Model).relations;
+    for (const [key] of relations) {
+      if ((this as Record<string, unknown>)[key] !== undefined) {
+        result[key] = (this as Record<string, unknown>)[key];
+      }
     }
     result.id = this.id;
     result.createdAt = this.createdAt;
     result.updatedAt = this.updatedAt;
-
-    // Loaded relations
-    if (relations) {
-      for (const [key, rel] of relations) {
-        const value = (this as Record<string, unknown>)[key];
-        if (value === undefined) continue;
-
-        if (Array.isArray(value)) {
-          result[key] = value.map((v: unknown) =>
-            v && typeof v === 'object' && 'toJSON' in v
-              ? (v as { toJSON: () => unknown }).toJSON()
-              : v
-          );
-        } else if (value && typeof value === 'object' && 'toJSON' in value) {
-          result[key] = (value as { toJSON: () => unknown }).toJSON();
-        } else {
-          result[key] = value;
-        }
-      }
-    }
-
     return result;
   }
 }

@@ -4,95 +4,54 @@
  * Provides Django-style ORM operations:
  *   User.objects.all()
  *   User.objects.filter({ username: 'john' })
- *   User.objects.filter({}).with('posts').all()  ← eager loading
  *   User.objects.create({ username: 'john' })
  *   User.objects.get({ id: 1 })
+ *   User.objects.with('posts').all()  // eager loading
  */
 import { query } from './database.js';
-import { getModel } from './registry.js';
-import { validateModel } from './validators/index.js';
-import { fireSignal } from './signals/index.js';
 import type {
   Model,
   ModelClass,
-  RelationDefinition,
   WhereClause,
   OrderClause,
   QueryOptions,
   AggregateOptions,
   AggregateResult,
+  RelationDefinition,
 } from './types.js';
+import { runSignal } from './signals/index.js';
+import { validateModel, ValidationError } from './validators/index.js';
 
 // ─── QuerySet ─────────────────────────────────────────────────────────────────
 
-interface JoinSpec {
-  relation: RelationDefinition;
-  alias: string;
-  targetTable: string;
-  joinColumn: string;
-  onColumn: string;
-}
-
-/**
- * A lazy queryset for building queries (like Django's QuerySet).
- */
 export class QuerySet<T extends Model> {
   private modelClass: ModelClass<T>;
   private options: QueryOptions = {};
-  private eagerRelations: string[] = [];
 
   constructor(modelClass: ModelClass<T>, options: QueryOptions = {}) {
     this.modelClass = modelClass;
     this.options = options;
   }
 
-  /**
-   * Eager load a relation (like Django's .select_related()).
-   *
-   * @example
-   * ```ts
-   * const posts = await Post.objects.filter({}).with('author').all();
-   * posts[0].author  // already loaded, no extra query
-   * ```
-   */
-  with(...relations: string[]): QuerySet<T> {
-    const qs = new QuerySet<T>(this.modelClass, { ...this.options });
-    qs.eagerRelations = [...this.eagerRelations, ...relations];
-    return qs;
-  }
-
-  /**
-   * Filter results (like Django's .filter()).
-   */
   filter(conditions: Record<string, unknown>): QuerySet<T> {
     const where = this.buildWhere(conditions);
-    const qs = new QuerySet<T>(this.modelClass, {
+    return new QuerySet<T>(this.modelClass, {
       ...this.options,
       where: [...(this.options.where ?? []), ...where],
     });
-    qs.eagerRelations = [...this.eagerRelations];
-    return qs;
   }
 
-  /**
-   * Exclude results (like Django's .exclude()).
-   */
   exclude(conditions: Record<string, unknown>): QuerySet<T> {
     const where = this.buildWhere(conditions).map((w) => ({
       ...w,
       operator: negateOperator(w.operator) as WhereClause['operator'],
     }));
-    const qs = new QuerySet<T>(this.modelClass, {
+    return new QuerySet<T>(this.modelClass, {
       ...this.options,
       where: [...(this.options.where ?? []), ...where],
     });
-    qs.eagerRelations = [...this.eagerRelations];
-    return qs;
   }
 
-  /**
-   * Order results (like Django's .order_by()).
-   */
   orderBy(...fields: string[]): QuerySet<T> {
     const orders: OrderClause[] = fields.map((f) => {
       if (f.startsWith('-')) {
@@ -100,62 +59,60 @@ export class QuerySet<T extends Model> {
       }
       return { field: f, direction: 'ASC' as const };
     });
-    const qs = new QuerySet<T>(this.modelClass, {
+    return new QuerySet<T>(this.modelClass, {
       ...this.options,
       orderBy: orders,
     });
-    qs.eagerRelations = [...this.eagerRelations];
-    return qs;
   }
 
-  /**
-   * Limit results (like Django's [:10] slicing).
-   */
   limit(count: number): QuerySet<T> {
-    const qs = new QuerySet<T>(this.modelClass, { ...this.options, limit: count });
-    qs.eagerRelations = [...this.eagerRelations];
-    return qs;
+    return new QuerySet<T>(this.modelClass, { ...this.options, limit: count });
   }
 
-  /**
-   * Offset results.
-   */
   offset(count: number): QuerySet<T> {
-    const qs = new QuerySet<T>(this.modelClass, { ...this.options, offset: count });
-    qs.eagerRelations = [...this.eagerRelations];
-    return qs;
+    return new QuerySet<T>(this.modelClass, { ...this.options, offset: count });
   }
 
-  /**
-   * Select specific fields.
-   */
   select(...fields: string[]): QuerySet<T> {
-    const qs = new QuerySet<T>(this.modelClass, {
+    return new QuerySet<T>(this.modelClass, {
       ...this.options,
       select: fields,
     });
-    qs.eagerRelations = [...this.eagerRelations];
-    return qs;
   }
 
   /**
-   * Execute and return all results.
+   * Eager load relations (like Django's select_related / prefetch_related).
+   *
+   *   User.objects.with('posts', 'profile').all()
    */
+  with(...relations: string[]): QuerySet<T> {
+    return new QuerySet<T>(this.modelClass, {
+      ...this.options,
+      relations: [...(this.options.relations ?? []), ...relations],
+    });
+  }
+
+  /**
+   * Paginate results.
+   */
+  paginate(page: number, pageSize: number): QuerySet<T> {
+    const offset = (page - 1) * pageSize;
+    return new QuerySet<T>(this.modelClass, {
+      ...this.options,
+      limit: pageSize,
+      offset,
+    });
+  }
+
   async all(): Promise<T[]> {
     return this.execute();
   }
 
-  /**
-   * Execute and return the first result.
-   */
   async first(): Promise<T | null> {
     const results = await this.limit(1).execute();
     return results[0] ?? null;
   }
 
-  /**
-   * Execute and return exactly one result (throws if not found or multiple).
-   */
   async get(conditions?: Record<string, unknown>): Promise<T> {
     let qs: QuerySet<T> = this as unknown as QuerySet<T>;
     if (conditions) {
@@ -171,43 +128,35 @@ export class QuerySet<T extends Model> {
     return results[0];
   }
 
-  /**
-   * Count results.
-   */
   async count(): Promise<number> {
     const sql = this.buildCountSql();
     const result = await query(sql, this.buildParams());
     return parseInt(result.rows[0].count as string, 10);
   }
 
-  /**
-   * Check if any results exist.
-   */
   async exists(): Promise<boolean> {
     return (await this.count()) > 0;
   }
 
-  /**
-   * Aggregate (COUNT, SUM, AVG, MIN, MAX).
-   */
   async aggregate(options: AggregateOptions): Promise<AggregateResult> {
     const sql = this.buildAggregateSql(options);
     const result = await query(sql, this.buildParams());
     return result.rows[0] ?? {};
   }
 
-  /**
-   * Delete matching records.
-   */
   async delete(): Promise<number> {
+    // Cascade delete: load IDs first, then delete related, then delete self
+    const ids = await this.select('id').all();
+    if (ids.length === 0) return 0;
+
+    const idList = ids.map((r) => r.id);
+    await cascadeDelete(this.modelClass, idList);
+
     const sql = this.buildDeleteSql();
     const result = await query(sql, this.buildParams());
     return result.rowCount ?? 0;
   }
 
-  /**
-   * Update matching records.
-   */
   async update(values: Record<string, unknown>): Promise<number> {
     const sql = this.buildUpdateSql(values);
     const params = [...Object.values(values), ...this.buildParams()];
@@ -215,86 +164,34 @@ export class QuerySet<T extends Model> {
     return result.rowCount ?? 0;
   }
 
-  /**
-   * Execute the query and return results.
-   */
   private async execute(): Promise<T[]> {
-    const joins = this.resolveJoins();
-    const sql = this.buildSelectSql(joins);
+    const sql = this.buildSelectSql();
     const result = await query(sql, this.buildParams());
-    return result.rows.map((row) => this.hydrate(row, joins));
-  }
+    const instances = result.rows.map((row) => this.hydrate(row));
 
-  // ─── Join Resolution ─────────────────────────────────────────────────────
-
-  /**
-   * Resolve eager relation names into join specs.
-   */
-  private resolveJoins(): JoinSpec[] {
-    const joins: JoinSpec[] = [];
-    const relations = this.modelClass.relations;
-
-    for (const relName of this.eagerRelations) {
-      const rel = relations?.get(relName);
-      if (!rel) {
-        console.warn(`[Reacto] Relation "${relName}" not found on ${this.modelClass._modelName}, skipping.`);
-        continue;
-      }
-
-      if (rel.type === 'foreignKey') {
-        const targetName = typeof rel.targetModel === 'function' ? rel.targetModel() : rel.targetModel;
-        const targetModel = getModel(targetName);
-        if (!targetModel) {
-          console.warn(`[Reacto] Model "${targetName}" not found for relation "${relName}", skipping.`);
-          continue;
-        }
-
-        joins.push({
-          relation: rel,
-          alias: `__rel_${relName}`,
-          targetTable: targetModel.tableName,
-          joinColumn: `${this.modelClass.tableName}.${rel.foreignKeyColumn}`,
-          onColumn: `${targetModel.tableName}.id`,
-        });
-      }
-      // oneToMany and oneToOne reverse relations would need separate handling
-      // (multiple rows or subqueries) — skip for now
+    // Eager load relations
+    if (this.options.relations?.length) {
+      await eagerLoad(this.modelClass, instances, this.options.relations);
     }
 
-    return joins;
+    return instances;
   }
 
   // ─── SQL Builders ─────────────────────────────────────────────────────────
 
-  private buildSelectSql(joins: JoinSpec[] = []): string {
+  private buildSelectSql(): string {
     const table = this.modelClass.tableName;
-    let columns: string;
-
-    if (joins.length > 0) {
-      // Main table columns (prefixed for disambiguation)
-      const mainCols = this.buildMainColumns(table);
-      // Join columns (prefixed with alias)
-      const joinCols = joins.flatMap((j) => this.buildJoinColumns(j));
-      columns = [...mainCols, ...joinCols].join(', ');
-    } else if (this.options.select?.length) {
-      columns = this.options.select.join(', ');
-    } else {
-      columns = `"${table}".*`;
-    }
-
-    let sql = `SELECT ${columns} FROM "${table}"`;
-
-    // Add JOINs
-    for (const j of joins) {
-      sql += ` LEFT JOIN "${j.targetTable}" AS "${j.alias}" ON ${j.joinColumn} = "${j.alias}".id`;
-    }
+    const fields = this.options.select?.length
+      ? this.options.select.join(', ')
+      : '*';
+    let sql = `SELECT ${fields} FROM "${table}"`;
 
     if (this.options.where?.length) {
       sql += ` WHERE ${this.buildWhereSql()}`;
     }
     if (this.options.orderBy?.length) {
       const orders = this.options.orderBy
-        .map((o) => `"${table}"."${o.field}" ${o.direction}`)
+        .map((o) => `"${o.field}" ${o.direction}`)
         .join(', ');
       sql += ` ORDER BY ${orders}`;
     }
@@ -306,45 +203,6 @@ export class QuerySet<T extends Model> {
     }
 
     return sql;
-  }
-
-  /**
-   * Build column list for the main table, prefixed with table name.
-   */
-  private buildMainColumns(table: string): string[] {
-    const cols: string[] = [];
-    for (const [, fieldDef] of this.modelClass.fields) {
-      const dbColumn = fieldDef.dbColumn || fieldDef.name;
-      cols.push(`"${table}"."${dbColumn}" AS "main__${dbColumn}"`);
-    }
-    // Always include built-in columns
-    cols.push(`"${table}"."id" AS "main__id"`);
-    cols.push(`"${table}"."created_at" AS "main__created_at"`);
-    cols.push(`"${table}"."updated_at" AS "main__updated_at"`);
-    // Deduplicate
-    return [...new Set(cols)];
-  }
-
-  /**
-   * Build column list for a join, prefixed with alias.
-   */
-  private buildJoinColumns(join: JoinSpec): string[] {
-    const targetModel = getModel(
-      typeof join.relation.targetModel === 'function'
-        ? join.relation.targetModel()
-        : join.relation.targetModel
-    );
-    if (!targetModel) return [];
-
-    const cols: string[] = [];
-    for (const [, fieldDef] of targetModel.fields) {
-      const dbColumn = fieldDef.dbColumn || fieldDef.name;
-      cols.push(`"${join.alias}"."${dbColumn}" AS "${join.alias}__${dbColumn}"`);
-    }
-    cols.push(`"${join.alias}"."id" AS "${join.alias}__id"`);
-    cols.push(`"${join.alias}"."created_at" AS "${join.alias}__created_at"`);
-    cols.push(`"${join.alias}"."updated_at" AS "${join.alias}__updated_at"`);
-    return [...new Set(cols)];
   }
 
   private buildCountSql(): string {
@@ -396,40 +254,38 @@ export class QuerySet<T extends Model> {
   }
 
   private buildWhereSql(paramOffset = 0): string {
-    const table = this.modelClass.tableName;
     return (this.options.where ?? [])
       .map((w, i) => {
         const paramName = `$${i + 1 + paramOffset}`;
-        const qualifiedField = `"${table}"."${w.field}"`;
         switch (w.operator) {
           case 'eq':
-            return `${qualifiedField} = ${paramName}`;
+            return `"${w.field}" = ${paramName}`;
           case 'neq':
-            return `${qualifiedField} != ${paramName}`;
+            return `"${w.field}" != ${paramName}`;
           case 'gt':
-            return `${qualifiedField} > ${paramName}`;
+            return `"${w.field}" > ${paramName}`;
           case 'gte':
-            return `${qualifiedField} >= ${paramName}`;
+            return `"${w.field}" >= ${paramName}`;
           case 'lt':
-            return `${qualifiedField} < ${paramName}`;
+            return `"${w.field}" < ${paramName}`;
           case 'lte':
-            return `${qualifiedField} <= ${paramName}`;
+            return `"${w.field}" <= ${paramName}`;
           case 'in':
-            return `${qualifiedField} = ANY(${paramName})`;
+            return `"${w.field}" = ANY(${paramName})`;
           case 'nin':
-            return `${qualifiedField} != ALL(${paramName})`;
+            return `"${w.field}" != ALL(${paramName})`;
           case 'like':
-            return `${qualifiedField} LIKE ${paramName}`;
+            return `"${w.field}" LIKE ${paramName}`;
           case 'ilike':
-            return `${qualifiedField} ILIKE ${paramName}`;
+            return `"${w.field}" ILIKE ${paramName}`;
           case 'isNull':
-            return `${qualifiedField} IS NULL`;
+            return `"${w.field}" IS NULL`;
           case 'isNotNull':
-            return `${qualifiedField} IS NOT NULL`;
+            return `"${w.field}" IS NOT NULL`;
           case 'between':
-            return `${qualifiedField} BETWEEN ${paramName} AND $${i + 2 + paramOffset}`;
+            return `"${w.field}" BETWEEN ${paramName} AND $${i + 2 + paramOffset}`;
           default:
-            return `${qualifiedField} = ${paramName}`;
+            return `"${w.field}" = ${paramName}`;
         }
       })
       .join(' AND ');
@@ -453,100 +309,182 @@ export class QuerySet<T extends Model> {
     });
   }
 
-  /**
-   * Hydrate a database row into a model instance.
-   * Handles eager-loaded relations when joins are present.
-   */
-  private hydrate(row: Record<string, unknown>, joins: JoinSpec[] = []): T {
-    const instance = new this.modelClass() as Record<string, unknown>;
+  private hydrate(row: Record<string, unknown>): T {
+    const instance = new this.modelClass() as unknown as Record<string, unknown>;
     const fields = this.modelClass.fields;
 
-    if (joins.length > 0) {
-      // Prefixed columns: main__field_name
-      for (const [propertyKey, fieldDef] of fields) {
-        const dbColumn = fieldDef.dbColumn || fieldDef.name;
-        const prefixed = `main__${dbColumn}`;
-        if (row[prefixed] !== undefined) {
-          instance[propertyKey] = row[prefixed];
-        }
+    for (const [propertyKey, fieldDef] of fields) {
+      const dbColumn = fieldDef.dbColumn || fieldDef.name;
+      if (row[dbColumn] !== undefined) {
+        instance[propertyKey] = row[dbColumn];
       }
-      if (row.main__id !== undefined) instance.id = row.main__id as number;
-      if (row.main__created_at !== undefined) instance.createdAt = row.main__created_at as Date;
-      if (row.main__updated_at !== undefined) instance.updatedAt = row.main__updated_at as Date;
-
-      // Hydrate eager-loaded relations
-      for (const j of joins) {
-        const targetModel = getModel(
-          typeof j.relation.targetModel === 'function'
-            ? j.relation.targetModel()
-            : j.relation.targetModel
-        );
-        if (!targetModel) continue;
-
-        // Check if the join has data (not all nulls from LEFT JOIN)
-        const hasData = row[`${j.alias}__id`] !== null;
-        if (!hasData) {
-          instance[j.relation.propertyKey] = null;
-          continue;
-        }
-
-        const relInstance = new targetModel() as unknown as Record<string, unknown>;
-        for (const [, fieldDef] of targetModel.fields) {
-          const dbColumn = fieldDef.dbColumn || fieldDef.name;
-          const prefixed = `${j.alias}__${dbColumn}`;
-          if (row[prefixed] !== undefined) {
-            relInstance[fieldDef.propertyKey] = row[prefixed];
-          }
-        }
-        relInstance.id = row[`${j.alias}__id`] as number;
-        if (row[`${j.alias}__created_at`] !== undefined)
-          relInstance.createdAt = row[`${j.alias}__created_at`] as Date;
-        if (row[`${j.alias}__updated_at`] !== undefined)
-          relInstance.updatedAt = row[`${j.alias}__updated_at`] as Date;
-
-        instance[j.relation.propertyKey] = relInstance as unknown as Model;
-      }
-    } else {
-      // No joins — simple hydration (existing behavior)
-      for (const [propertyKey, fieldDef] of fields) {
-        const dbColumn = fieldDef.dbColumn || fieldDef.name;
-        if (row[dbColumn] !== undefined) {
-          instance[propertyKey] = row[dbColumn];
-        }
-      }
-      if (row.id !== undefined) instance.id = row.id as number;
-      if (row.created_at !== undefined) instance.createdAt = row.created_at as Date;
-      if (row.updated_at !== undefined) instance.updatedAt = row.updated_at as Date;
     }
+
+    if (row.id !== undefined) instance.id = row.id as number;
+    if (row.created_at !== undefined) instance.createdAt = row.created_at as Date;
+    if (row.updated_at !== undefined) instance.updatedAt = row.updated_at as Date;
 
     return instance as unknown as T;
   }
 }
 
+// ─── Eager Loading ────────────────────────────────────────────────────────────
+
+async function eagerLoad<T extends Model>(
+  modelClass: ModelClass<T>,
+  instances: T[],
+  relations: string[]
+): Promise<void> {
+  if (instances.length === 0) return;
+
+  for (const relName of relations) {
+    const rel = modelClass.relations.get(relName);
+    if (!rel) continue;
+
+    const targetClass = rel.target();
+
+    if (rel.type === 'foreignKey' || rel.type === 'oneToOne') {
+      // Load related records by FK
+      const fkColumn = rel.foreignKey;
+      const ids = instances
+        .map((inst) => (inst as unknown as Record<string, unknown>)[fkColumn] as number)
+        .filter(Boolean);
+
+      if (ids.length === 0) continue;
+
+      const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+      const sql = `SELECT * FROM "${targetClass.tableName}" WHERE "id" IN (${placeholders})`;
+      const result = await query(sql, ids);
+
+      const map = new Map<number, Record<string, unknown>>();
+      for (const row of result.rows) {
+        map.set(row.id as number, row);
+      }
+
+      for (const inst of instances) {
+        const fkValue = (inst as unknown as Record<string, unknown>)[fkColumn] as number;
+        if (fkValue && map.has(fkValue)) {
+          const related = new targetClass() as unknown as Record<string, unknown>;
+          const row = map.get(fkValue)!;
+          for (const [key, fieldDef] of targetClass.fields) {
+            const dbCol = fieldDef.dbColumn || fieldDef.name;
+            if (row[dbCol] !== undefined) related[key] = row[dbCol];
+          }
+          related.id = row.id;
+          related.createdAt = row.created_at;
+          related.updatedAt = row.updated_at;
+          (inst as unknown as Record<string, unknown>)[relName] = related;
+        }
+      }
+    } else if (rel.type === 'oneToMany') {
+      // Find the FK on the target model that points back to us
+      const inverseRel = findInverseRelation(targetClass, modelClass, rel.inverseSide);
+      if (!inverseRel) continue;
+
+      const ids = instances.map((inst) => inst.id);
+      const placeholders = ids.map((_, i) => `$${i + 1}`).join(', ');
+      const fkCol = inverseRel.foreignKey;
+      const sql = `SELECT * FROM "${targetClass.tableName}" WHERE "${fkCol}" IN (${placeholders})`;
+      const result = await query(sql, ids);
+
+      // Group by FK
+      const grouped = new Map<number, Record<string, unknown>[]>();
+      for (const row of result.rows) {
+        const fkVal = row[fkCol] as number;
+        const arr = grouped.get(fkVal) ?? [];
+        arr.push(row);
+        grouped.set(fkVal, arr);
+      }
+
+      for (const inst of instances) {
+        const rows = grouped.get(inst.id) ?? [];
+        (inst as unknown as Record<string, unknown>)[relName] = rows.map((row) => {
+          const related = new targetClass() as unknown as Record<string, unknown>;
+          for (const [key, fieldDef] of targetClass.fields) {
+            const dbCol = fieldDef.dbColumn || fieldDef.name;
+            if (row[dbCol] !== undefined) related[key] = row[dbCol];
+          }
+          related.id = row.id;
+          related.createdAt = row.created_at;
+          related.updatedAt = row.updated_at;
+          return related;
+        });
+      }
+    }
+  }
+}
+
+function findInverseRelation(
+  targetClass: ModelClass,
+  sourceClass: ModelClass,
+  inverseSide?: string
+): RelationDefinition | undefined {
+  if (inverseSide) {
+    return targetClass.relations.get(inverseSide);
+  }
+  // Auto-find: look for a FK on target that points to source
+  for (const [, rel] of targetClass.relations) {
+    if ((rel.type === 'foreignKey' || rel.type === 'oneToOne') && rel.target() === sourceClass) {
+      return rel;
+    }
+  }
+  return undefined;
+}
+
+// ─── Cascade Delete ───────────────────────────────────────────────────────────
+
+async function cascadeDelete(modelClass: ModelClass, ids: number[]): Promise<void> {
+  for (const [, rel] of modelClass.relations) {
+    if (rel.onDelete !== 'CASCADE') continue;
+
+    const targetClass = rel.target();
+
+    if (rel.type === 'oneToMany') {
+      // Delete children that reference these parents
+      const inverseRel = findInverseRelation(targetClass, modelClass, rel.inverseSide);
+      if (!inverseRel) continue;
+
+      const fkCol = inverseRel.foreignKey;
+      // First cascade delete on grandchildren
+      const childIds = await query(
+        `SELECT "id" FROM "${targetClass.tableName}" WHERE "${fkCol}" = ANY($1)`,
+        [ids]
+      );
+      if (childIds.rows.length > 0) {
+        await cascadeDelete(targetClass, childIds.rows.map((r) => r.id as number));
+      }
+      await query(
+        `DELETE FROM "${targetClass.tableName}" WHERE "${fkCol}" = ANY($1)`,
+        [ids]
+      );
+    } else if (rel.type === 'foreignKey' || rel.type === 'oneToOne') {
+      // Set FK to NULL on related records (or delete if CASCADE on the other side)
+      // For FK relations, we don't delete the target — we just handle our own cascade
+    }
+  }
+}
+
 // ─── ModelManager (static CRUD) ───────────────────────────────────────────────
 
-/**
- * Static CRUD operations for models (like Django's Manager).
- */
 export class ModelManager {
-  /**
-   * Get a QuerySet for a model.
-   */
   static objects<T extends Model>(modelClass: ModelClass<T>): QuerySet<T> {
     return new QuerySet<T>(modelClass);
   }
 
-  /**
-   * Create a new record.
-   * Runs validators and fires pre_save / post_save signals.
-   */
   static async create<T extends Model>(
     modelClass: ModelClass<T>,
     data: Partial<T>
   ): Promise<T> {
-    // Run validators
-    const dataRecord = data as Record<string, unknown>;
-    validateModel(dataRecord, modelClass.fields, modelClass._modelName);
+    // Validate
+    const errors = validateModel(data as unknown as Record<string, unknown>, modelClass.fields);
+    if (Object.keys(errors).length > 0) {
+      throw new ValidationError(errors);
+    }
+
+    // Run preSave signal
+    const tempInstance = new modelClass() as Record<string, unknown>;
+    Object.assign(tempInstance, data);
+    await runSignal(modelClass, 'preSave', tempInstance as unknown as T);
 
     const fields = modelClass.fields;
     const columns: string[] = [];
@@ -559,7 +497,7 @@ export class ModelManager {
       if (propertyKey === 'id' || propertyKey === 'createdAt' || propertyKey === 'updatedAt') continue;
 
       const dbColumn = fieldDef.dbColumn || fieldDef.name;
-      const value = (data as Record<string, unknown>)[propertyKey];
+      const value = (tempInstance as unknown as Record<string, unknown>)[propertyKey];
 
       if (value !== undefined) {
         columns.push(`"${dbColumn}"`);
@@ -583,24 +521,27 @@ export class ModelManager {
     instance.createdAt = row.created_at as Date;
     instance.updatedAt = row.updated_at as Date;
 
-    // Fire post_save signal
-    await fireSignal('post_save', instance as unknown as Model);
+    // Run postSave signal
+    await runSignal(modelClass, 'postSave', instance as unknown as T);
 
     return instance as unknown as T;
   }
 
-  /**
-   * Save (upsert) a model instance.
-   * Runs validators and fires pre_save / post_save signals.
-   */
   static async save<T extends Model>(instance: T): Promise<T> {
     const modelClass = instance.constructor as ModelClass<T>;
+
+    // Validate
+    const errors = validateModel(instance as unknown as Record<string, unknown>, modelClass.fields);
+    if (Object.keys(errors).length > 0) {
+      throw new ValidationError(errors);
+    }
+
+    // Run preSave signal
+    await runSignal(modelClass, 'preSave', instance);
+
     const fields = modelClass.fields;
 
     if (instance.id) {
-      // Fire pre_save signal
-      await fireSignal('pre_save', instance);
-
       // UPDATE
       const sets: string[] = [];
       const values: unknown[] = [];
@@ -611,13 +552,12 @@ export class ModelManager {
         if (propertyKey === 'createdAt') continue;
 
         const dbColumn = fieldDef.dbColumn || fieldDef.name;
-        const value = (instance as Record<string, unknown>)[propertyKey];
+        const value = (instance as unknown as Record<string, unknown>)[propertyKey];
 
         sets.push(`"${dbColumn}" = $${paramIndex++}`);
         values.push(value);
       }
 
-      // Always update updated_at
       sets.push(`"updated_at" = NOW()`);
       values.push(instance.id);
 
@@ -632,80 +572,39 @@ export class ModelManager {
       for (const [propertyKey, fieldDef] of fields) {
         const dbColumn = fieldDef.dbColumn || fieldDef.name;
         if (row[dbColumn] !== undefined) {
-          (instance as Record<string, unknown>)[propertyKey] = row[dbColumn];
+          (instance as unknown as Record<string, unknown>)[propertyKey] = row[dbColumn];
         }
       }
       instance.updatedAt = row.updated_at as Date;
 
-      // Fire post_save signal
-      await fireSignal('post_save', instance);
+      // Run postSave signal
+      await runSignal(modelClass, 'postSave', instance);
 
       return instance;
     } else {
-      // INSERT — run validators then create
-      const dataRecord = instance as unknown as Record<string, unknown>;
-      validateModel(dataRecord, modelClass.fields, modelClass._modelName);
+      // INSERT
       return ModelManager.create(modelClass, instance as Partial<T>);
     }
   }
 
-  /**
-   * Delete a model instance.
-   * Respects cascade delete from ForeignKey onDelete option.
-   * Fires pre_delete / post_delete signals.
-   */
   static async delete<T extends Model>(instance: T): Promise<void> {
     const modelClass = instance.constructor as ModelClass<T>;
     if (!instance.id) {
       throw new Error('Cannot delete an unsaved instance.');
     }
 
-    // Fire pre_delete signal
-    await fireSignal('pre_delete', instance);
+    // Run preDelete signal
+    await runSignal(modelClass, 'preDelete', instance);
 
-    // Cascade delete: find models that have FK pointing at this model
-    const { getAllModels } = await import('./registry.js');
-    const allModels = getAllModels();
-
-    for (const [, otherModel] of allModels) {
-      const relations = otherModel.relations;
-      if (!relations) continue;
-
-      for (const [, rel] of relations) {
-        if (rel.type !== 'foreignKey') continue;
-
-        const targetName = typeof rel.targetModel === 'function' ? rel.targetModel() : rel.targetModel;
-        if (targetName !== modelClass._modelName) continue;
-
-        const fkColumn = rel.foreignKeyColumn;
-        if (!fkColumn) continue;
-
-        if (rel.onDelete === 'CASCADE') {
-          // Delete all related records
-          await query(
-            `DELETE FROM "${otherModel.tableName}" WHERE "${fkColumn}" = $1`,
-            [instance.id]
-          );
-        } else if (rel.onDelete === 'SET NULL') {
-          // Set FK to null
-          await query(
-            `UPDATE "${otherModel.tableName}" SET "${fkColumn}" = NULL WHERE "${fkColumn}" = $1`,
-            [instance.id]
-          );
-        }
-        // RESTRICT / NO ACTION: let the DB enforce the constraint
-      }
-    }
+    // Cascade delete related records
+    await cascadeDelete(modelClass, [instance.id]);
 
     await query(`DELETE FROM "${modelClass.tableName}" WHERE "id" = $1`, [instance.id]);
 
-    // Fire post_delete signal
-    await fireSignal('post_delete', instance);
+    // Run postDelete signal
+    await runSignal(modelClass, 'postDelete', instance);
   }
 
-  /**
-   * Refresh an instance from the database.
-   */
   static async refresh<T extends Model>(instance: T): Promise<T> {
     const modelClass = instance.constructor as ModelClass<T>;
     if (!instance.id) {
@@ -726,7 +625,7 @@ export class ModelManager {
     for (const [propertyKey, fieldDef] of fields) {
       const dbColumn = fieldDef.dbColumn || fieldDef.name;
       if (row[dbColumn] !== undefined) {
-        (instance as Record<string, unknown>)[propertyKey] = row[dbColumn];
+        (instance as unknown as Record<string, unknown>)[propertyKey] = row[dbColumn];
       }
     }
     instance.updatedAt = row.updated_at as Date;
@@ -741,8 +640,8 @@ function negateOperator(op: string): string {
   const negations: Record<string, string> = {
     eq: 'neq',
     neq: 'eq',
-    gt: 'lte',
     gte: 'lt',
+    gt: 'lte',
     lt: 'gte',
     lte: 'gt',
   };

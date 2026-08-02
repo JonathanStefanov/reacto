@@ -43,12 +43,12 @@ describe('auth middleware', () => {
 
     it('rejects a token signed with wrong secret', () => {
       const token = signJwt({ sub: 1 }, 'wrong-secret');
-      expect(() => verifyJwt(token, secret)).toThrow('Invalid token signature');
+      expect(() => verifyJwt(token, secret)).toThrow('Invalid JWT signature');
     });
 
     it('rejects an expired token', () => {
-      const token = signJwt({ sub: 1 }, secret, -10); // already expired
-      expect(() => verifyJwt(token, secret)).toThrow('Token expired');
+      const token = signJwt({ sub: 1 }, secret, -10);
+      expect(() => verifyJwt(token, secret)).toThrow('JWT expired');
     });
 
     it('rejects a malformed token', () => {
@@ -56,7 +56,7 @@ describe('auth middleware', () => {
     });
 
     it('rejects a token with invalid format', () => {
-      expect(() => verifyJwt('invalid', secret)).toThrow('Invalid token format');
+      expect(() => verifyJwt('invalid', secret)).toThrow('Invalid JWT format');
     });
 
     it('rejects a tampered token', () => {
@@ -64,7 +64,7 @@ describe('auth middleware', () => {
       const parts = token.split('.');
       parts[1] = Buffer.from(JSON.stringify({ sub: 999 })).toString('base64url');
       const tampered = parts.join('.');
-      expect(() => verifyJwt(tampered, secret)).toThrow('Invalid token signature');
+      expect(() => verifyJwt(tampered, secret)).toThrow('Invalid JWT signature');
     });
   });
 });

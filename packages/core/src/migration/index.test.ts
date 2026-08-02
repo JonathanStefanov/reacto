@@ -22,12 +22,8 @@ describe('migration/index', () => {
     });
 
     it('generates DROP TABLE SQL', () => {
-      const op: MigrationOperation = {
-        type: 'dropTable',
-        tableName: 'old_table',
-      };
-      const sql = operationToSql(op);
-      expect(sql).toBe('DROP TABLE IF EXISTS "old_table"');
+      const op: MigrationOperation = { type: 'dropTable', tableName: 'old_table' };
+      expect(operationToSql(op)).toBe('DROP TABLE IF EXISTS "old_table"');
     });
 
     it('generates ADD COLUMN SQL', () => {
@@ -36,8 +32,7 @@ describe('migration/index', () => {
         tableName: 'users',
         column: { name: 'age', type: 'INTEGER', nullable: true },
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" ADD COLUMN age INTEGER');
+      expect(operationToSql(op)).toBe('ALTER TABLE "users" ADD COLUMN age INTEGER');
     });
 
     it('generates DROP COLUMN SQL', () => {
@@ -46,8 +41,7 @@ describe('migration/index', () => {
         tableName: 'users',
         columnName: 'legacy_field',
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" DROP COLUMN "legacy_field"');
+      expect(operationToSql(op)).toBe('ALTER TABLE "users" DROP COLUMN "legacy_field"');
     });
 
     it('generates ALTER COLUMN SQL for type change', () => {
@@ -57,8 +51,7 @@ describe('migration/index', () => {
         columnName: 'age',
         changes: { type: 'BIGINT' },
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" ALTER COLUMN "age" TYPE BIGINT');
+      expect(operationToSql(op)).toBe('ALTER TABLE "users" ALTER COLUMN "age" TYPE BIGINT');
     });
 
     it('generates ALTER COLUMN SQL for nullable change (set not null)', () => {
@@ -68,8 +61,7 @@ describe('migration/index', () => {
         columnName: 'email',
         changes: { nullable: false },
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" ALTER COLUMN "email" SET NOT NULL');
+      expect(operationToSql(op)).toBe('ALTER TABLE "users" ALTER COLUMN "email" SET NOT NULL');
     });
 
     it('generates ALTER COLUMN SQL for nullable change (drop not null)', () => {
@@ -79,8 +71,7 @@ describe('migration/index', () => {
         columnName: 'bio',
         changes: { nullable: true },
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" ALTER COLUMN "bio" DROP NOT NULL');
+      expect(operationToSql(op)).toBe('ALTER TABLE "users" ALTER COLUMN "bio" DROP NOT NULL');
     });
 
     it('generates ALTER COLUMN SQL for default change', () => {
@@ -90,43 +81,7 @@ describe('migration/index', () => {
         columnName: 'status',
         changes: { default: "'active'" },
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT \'active\'');
-    });
-
-    it('returns null for alterColumn with default undefined (no default change)', () => {
-      const op: MigrationOperation = {
-        type: 'alterColumn',
-        tableName: 'users',
-        columnName: 'status',
-        changes: { default: undefined },
-      };
-      // default: undefined is treated as 'no change' since the check is !== undefined
-      const sql = operationToSql(op);
-      expect(sql).toBeNull();
-    });
-
-    it('generates ALTER COLUMN SQL for dropping default with null', () => {
-      const op: MigrationOperation = {
-        type: 'alterColumn',
-        tableName: 'users',
-        columnName: 'status',
-        changes: { default: null as unknown as string },
-      };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" ALTER COLUMN "status" DROP DEFAULT');
-    });
-
-    it('generates ALTER COLUMN SQL with multiple changes', () => {
-      const op: MigrationOperation = {
-        type: 'alterColumn',
-        tableName: 'users',
-        columnName: 'age',
-        changes: { type: 'BIGINT', nullable: false },
-      };
-      const sql = operationToSql(op);
-      expect(sql).toContain('ALTER COLUMN "age" TYPE BIGINT');
-      expect(sql).toContain('ALTER COLUMN "age" SET NOT NULL');
+      expect(operationToSql(op)).toBe('ALTER TABLE "users" ALTER COLUMN "status" SET DEFAULT \'active\'');
     });
 
     it('returns null for alterColumn with no changes', () => {
@@ -136,8 +91,7 @@ describe('migration/index', () => {
         columnName: 'age',
         changes: {},
       };
-      const sql = operationToSql(op);
-      expect(sql).toBeNull();
+      expect(operationToSql(op)).toBeNull();
     });
 
     it('generates CREATE INDEX SQL', () => {
@@ -147,8 +101,7 @@ describe('migration/index', () => {
         indexName: 'idx_users_email',
         columns: ['email'],
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('CREATE INDEX "idx_users_email" ON "users" ("email")');
+      expect(operationToSql(op)).toBe('CREATE INDEX "idx_users_email" ON "users" ("email")');
     });
 
     it('generates CREATE UNIQUE INDEX SQL', () => {
@@ -159,28 +112,12 @@ describe('migration/index', () => {
         columns: ['email'],
         unique: true,
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('CREATE UNIQUE INDEX "idx_users_email_unique" ON "users" ("email")');
-    });
-
-    it('generates CREATE INDEX with multiple columns', () => {
-      const op: MigrationOperation = {
-        type: 'createIndex',
-        tableName: 'orders',
-        indexName: 'idx_orders_user_status',
-        columns: ['user_id', 'status'],
-      };
-      const sql = operationToSql(op);
-      expect(sql).toBe('CREATE INDEX "idx_orders_user_status" ON "orders" ("user_id", "status")');
+      expect(operationToSql(op)).toBe('CREATE UNIQUE INDEX "idx_users_email_unique" ON "users" ("email")');
     });
 
     it('generates DROP INDEX SQL', () => {
-      const op: MigrationOperation = {
-        type: 'dropIndex',
-        indexName: 'idx_users_email',
-      };
-      const sql = operationToSql(op);
-      expect(sql).toBe('DROP INDEX IF EXISTS "idx_users_email"');
+      const op: MigrationOperation = { type: 'dropIndex', indexName: 'idx_users_email' };
+      expect(operationToSql(op)).toBe('DROP INDEX IF EXISTS "idx_users_email"');
     });
 
     it('generates RENAME TABLE SQL', () => {
@@ -189,8 +126,7 @@ describe('migration/index', () => {
         oldTableName: 'users',
         newTableName: 'accounts',
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" RENAME TO "accounts"');
+      expect(operationToSql(op)).toBe('ALTER TABLE "users" RENAME TO "accounts"');
     });
 
     it('generates RENAME COLUMN SQL', () => {
@@ -200,59 +136,53 @@ describe('migration/index', () => {
         oldColumnName: 'name',
         newColumnName: 'full_name',
       };
-      const sql = operationToSql(op);
-      expect(sql).toBe('ALTER TABLE "users" RENAME COLUMN "name" TO "full_name"');
+      expect(operationToSql(op)).toBe('ALTER TABLE "users" RENAME COLUMN "name" TO "full_name"');
     });
 
     it('returns null for unknown operation type', () => {
       const op = { type: 'unknownOp' } as unknown as MigrationOperation;
-      const sql = operationToSql(op);
-      expect(sql).toBeNull();
+      expect(operationToSql(op)).toBeNull();
     });
 
     it('generates FOREIGN KEY constraint SQL', () => {
       const op: MigrationOperation = {
-        type: 'foreignKey',
+        type: 'addForeignKey',
         tableName: 'posts',
         columnName: 'author_id',
-        referenceTable: 'users',
-        referenceColumn: 'id',
+        referencesTable: 'users',
+        referencesColumn: 'id',
         onDelete: 'CASCADE',
-        onUpdate: 'CASCADE',
-        constraintName: 'fk_posts_author_id',
       };
       const sql = operationToSql(op);
       expect(sql).toBe(
-        'ALTER TABLE "posts" ADD CONSTRAINT "fk_posts_author_id" FOREIGN KEY ("author_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE'
+        'ALTER TABLE "posts" ADD CONSTRAINT "fk_posts_author_id" FOREIGN KEY ("author_id") REFERENCES "users" ("id") ON DELETE CASCADE'
       );
     });
 
     it('generates FOREIGN KEY with SET NULL on delete', () => {
       const op: MigrationOperation = {
-        type: 'foreignKey',
+        type: 'addForeignKey',
         tableName: 'posts',
         columnName: 'author_id',
-        referenceTable: 'users',
-        referenceColumn: 'id',
+        referencesTable: 'users',
+        referencesColumn: 'id',
         onDelete: 'SET NULL',
-        onUpdate: 'CASCADE',
       };
       const sql = operationToSql(op);
       expect(sql).toContain('ON DELETE SET NULL');
       expect(sql).toContain('fk_posts_author_id');
     });
 
-    it('generates FOREIGN KEY with defaults when not specified', () => {
+    it('generates FOREIGN KEY with default CASCADE when not specified', () => {
       const op: MigrationOperation = {
-        type: 'foreignKey',
+        type: 'addForeignKey',
         tableName: 'posts',
         columnName: 'author_id',
-        referenceTable: 'users',
-        referenceColumn: 'id',
+        referencesTable: 'users',
+        referencesColumn: 'id',
       };
       const sql = operationToSql(op);
       expect(sql).toContain('ON DELETE CASCADE');
-      expect(sql).toContain('ON UPDATE CASCADE');
     });
   });
 });

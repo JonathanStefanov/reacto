@@ -14,6 +14,7 @@ import type {
   MigrationOperation,
   ColumnDefinition,
   ModelClass,
+  AddForeignKeyOperation,
 } from '../types.js';
 import * as crypto from 'crypto';
 
@@ -21,9 +22,6 @@ import * as crypto from 'crypto';
 
 const MIGRATIONS_TABLE = 'reacto_migrations';
 
-/**
- * Ensure the migrations tracking table exists.
- */
 export async function ensureMigrationsTable(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS "${MIGRATIONS_TABLE}" (
@@ -34,9 +32,6 @@ export async function ensureMigrationsTable(): Promise<void> {
   `);
 }
 
-/**
- * Get all applied migration IDs.
- */
 export async function getAppliedMigrations(): Promise<string[]> {
   await ensureMigrationsTable();
   const result = await query(
@@ -47,10 +42,6 @@ export async function getAppliedMigrations(): Promise<string[]> {
 
 // ─── Migration Generation ─────────────────────────────────────────────────────
 
-/**
- * Generate migrations for all registered models.
- * Compares current model state against the database schema.
- */
 export async function generateMigrations(): Promise<Migration[]> {
   const models = getAllModels();
   const migrations: Migration[] = [];
@@ -65,14 +56,10 @@ export async function generateMigrations(): Promise<Migration[]> {
   return migrations;
 }
 
-/**
- * Generate a migration for a single model.
- */
 async function generateMigrationForModel(modelClass: ModelClass): Promise<Migration | null> {
   const tableName = modelClass.tableName;
   const operations: MigrationOperation[] = [];
 
-  // Check if table exists
   const tableExists = await checkTableExists(tableName);
 
   if (!tableExists) {
@@ -89,24 +76,17 @@ async function generateMigrationForModel(modelClass: ModelClass): Promise<Migrat
     });
 
     // Add foreign key constraints
-    const relations = modelClass.relations ?? new Map();
-    for (const [, rel] of relations) {
-      if (rel.type === 'foreignKey' && rel.foreignKeyColumn) {
-        const targetModelClass = getAllModels().get(
-          typeof rel.targetModel === 'function' ? rel.targetModel() : rel.targetModel
-        );
-        if (targetModelClass) {
-          operations.push({
-            type: 'foreignKey',
-            tableName,
-            columnName: rel.foreignKeyColumn,
-            referenceTable: targetModelClass.tableName,
-            referenceColumn: 'id',
-            onDelete: rel.onDelete ?? 'CASCADE',
-            onUpdate: rel.onUpdate ?? 'CASCADE',
-            constraintName: `fk_${tableName}_${rel.foreignKeyColumn}`,
-          });
-        }
+    for (const [, rel] of modelClass.relations) {
+      if (rel.type === 'foreignKey' || rel.type === 'oneToOne') {
+        const targetClass = rel.target();
+        operations.push({
+          type: 'addForeignKey',
+          tableName,
+          columnName: rel.foreignKey,
+          referencesTable: targetClass.tableName,
+          referencesColumn: 'id',
+          onDelete: rel.onDelete ?? 'CASCADE',
+        } as AddForeignKeyOperation);
       }
     }
 
@@ -132,60 +112,39 @@ async function generateMigrationForModel(modelClass: ModelClass): Promise<Migrat
       const columnDef = fieldToColumn(fieldDef);
 
       if (!existingColumnNames.has(dbColumn)) {
-        // New column
         operations.push({
           type: 'addColumn',
           tableName,
           column: columnDef,
         });
       }
-      // TODO: Detect column alterations (type changes, nullability, etc.)
     }
-
-    // Check for removed columns (optional — Django doesn't auto-detect this)
   }
 
-  if (operations.length === 0) {
-    return null;
-  }
+  if (operations.length === 0) return null;
 
   const id = generateMigrationId();
   const name = `auto_${tableName}_${Date.now()}`;
 
-  return {
-    id,
-    name,
-    operations,
-    dependencies: [],
-    createdAt: new Date(),
-  };
+  return { id, name, operations, dependencies: [], createdAt: new Date() };
 }
 
 // ─── Migration Execution ──────────────────────────────────────────────────────
 
-/**
- * Apply all pending migrations.
- */
 export async function applyMigrations(migrations: Migration[]): Promise<void> {
   await ensureMigrationsTable();
   const applied = new Set(await getAppliedMigrations());
 
   for (const migration of migrations) {
-    if (applied.has(migration.id)) {
-      continue;
-    }
+    if (applied.has(migration.id)) continue;
 
     console.log(`[Reacto] Applying migration: ${migration.name}`);
 
     await transaction(async (client) => {
       for (const op of migration.operations) {
         const sql = operationToSql(op);
-        if (sql) {
-          await client.query(sql);
-        }
+        if (sql) await client.query(sql);
       }
-
-      // Record migration
       await client.query(
         `INSERT INTO "${MIGRATIONS_TABLE}" (id, name) VALUES ($1, $2)`,
         [migration.id, migration.name]
@@ -196,31 +155,22 @@ export async function applyMigrations(migrations: Migration[]): Promise<void> {
   }
 }
 
-/**
- * Mark migrations as applied without running them.
- */
 export async function fakeMigrations(migrations: Migration[]): Promise<void> {
   await ensureMigrationsTable();
   const applied = new Set(await getAppliedMigrations());
 
   for (const migration of migrations) {
     if (applied.has(migration.id)) continue;
-
     await query(
       `INSERT INTO "${MIGRATIONS_TABLE}" (id, name) VALUES ($1, $2)`,
       [migration.id, migration.name]
     );
-
     console.log(`[Reacto] ✓ Faked: ${migration.name}`);
   }
 }
 
-/**
- * Show migration status.
- */
 export async function showMigrationStatus(migrations: Migration[]): Promise<void> {
   const applied = new Set(await getAppliedMigrations());
-
   console.log('\n[Reacto] Migration Status:\n');
   for (const migration of migrations) {
     const status = applied.has(migration.id) ? '✓ Applied' : '○ Pending';
@@ -231,9 +181,6 @@ export async function showMigrationStatus(migrations: Migration[]): Promise<void
 
 // ─── SQL Generation ───────────────────────────────────────────────────────────
 
-/**
- * Convert a migration operation to SQL.
- */
 export function operationToSql(op: MigrationOperation): string | null {
   switch (op.type) {
     case 'createTable': {
@@ -287,10 +234,13 @@ export function operationToSql(op: MigrationOperation): string | null {
     case 'renameColumn':
       return `ALTER TABLE "${op.tableName}" RENAME COLUMN "${op.oldColumnName}" TO "${op.newColumnName}"`;
 
-    case 'foreignKey': {
-      const constraintName = op.constraintName ?? `fk_${op.tableName}_${op.columnName}`;
-      return `ALTER TABLE "${op.tableName}" ADD CONSTRAINT "${constraintName}" FOREIGN KEY ("${op.columnName}") REFERENCES "${op.referenceTable}" ("${op.referenceColumn}") ON DELETE ${op.onDelete ?? 'CASCADE'} ON UPDATE ${op.onUpdate ?? 'CASCADE'}`;
+    case 'addForeignKey': {
+      const constraintName = `fk_${op.tableName}_${op.columnName}`;
+      return `ALTER TABLE "${op.tableName}" ADD CONSTRAINT "${constraintName}" FOREIGN KEY ("${op.columnName}") REFERENCES "${op.referencesTable}" ("${op.referencesColumn}") ON DELETE ${op.onDelete ?? 'CASCADE'}`;
     }
+
+    case 'dropForeignKey':
+      return `ALTER TABLE "${op.tableName}" DROP CONSTRAINT "${op.constraintName}"`;
 
     default:
       return null;
@@ -303,8 +253,7 @@ async function checkTableExists(tableName: string): Promise<boolean> {
   const result = await query(
     `SELECT EXISTS (
       SELECT FROM information_schema.tables
-      WHERE table_schema = 'public'
-      AND table_name = $1
+      WHERE table_schema = 'public' AND table_name = $1
     )`,
     [tableName]
   );

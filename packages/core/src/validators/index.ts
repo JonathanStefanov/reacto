@@ -1,228 +1,187 @@
 /**
- * Reacto — Field validators (Django-style field validation)
+ * Reacto — Field Validators
  *
- * Usage:
- *   @Field({ type: 'string', maxLength: 150, validators: [required(), minLength(3)] })
+ * Built-in validators for model fields:
+ *
+ *   @Field({ type: 'string', validators: [required(), minLength(3), maxLength(150)] })
  *   username: string;
- *
- * Built-in validators:
- *   required()        — value must be present and non-empty
- *   minLength(n)      — string length >= n
- *   maxLength(n)      — string length <= n
- *   min(n)            — number >= n
- *   max(n)            — number <= n
- *   pattern(regex)    — string matches regex
- *   email()           — valid email format
- *   url()             — valid URL format
- *   oneOf([...])      — value must be one of the allowed values
- *   custom(fn)        — custom validation function
  */
-
 import type { Validator } from '../types.js';
 
-export interface ValidationResult {
-  valid: boolean;
-  errors: string[];
-}
+// ─── Built-in Validators ─────────────────────────────────────────────────────
 
-// Re-export for convenience
-export type { Validator } from '../types.js';
-
-// ─── Built-in Validators ──────────────────────────────────────────────────────
-
-/**
- * Value must be present and non-empty.
- */
 export function required(): Validator {
   return {
     name: 'required',
-    validate(value, field) {
+    validate(value: unknown, fieldName: string): string | null {
       if (value === null || value === undefined || value === '') {
-        return `${field} is required`;
+        return `${fieldName} is required.`;
       }
       return null;
     },
   };
 }
 
-/**
- * String length must be >= min.
- */
 export function minLength(min: number): Validator {
   return {
     name: 'minLength',
-    validate(value, field) {
+    validate(value: unknown, fieldName: string): string | null {
       if (typeof value === 'string' && value.length < min) {
-        return `${field} must be at least ${min} characters`;
+        return `${fieldName} must be at least ${min} characters.`;
       }
       return null;
     },
   };
 }
 
-/**
- * String length must be <= max.
- */
 export function maxLength(max: number): Validator {
   return {
     name: 'maxLength',
-    validate(value, field) {
+    validate(value: unknown, fieldName: string): string | null {
       if (typeof value === 'string' && value.length > max) {
-        return `${field} must be at most ${max} characters`;
+        return `${fieldName} must be at most ${max} characters.`;
       }
       return null;
     },
   };
 }
 
-/**
- * Number must be >= min.
- */
-export function min(min: number): Validator {
+export function minValue(min: number): Validator {
   return {
-    name: 'min',
-    validate(value, field) {
+    name: 'minValue',
+    validate(value: unknown, fieldName: string): string | null {
       if (typeof value === 'number' && value < min) {
-        return `${field} must be at least ${min}`;
+        return `${fieldName} must be at least ${min}.`;
       }
       return null;
     },
   };
 }
 
-/**
- * Number must be <= max.
- */
-export function max(max: number): Validator {
+export function maxValue(max: number): Validator {
   return {
-    name: 'max',
-    validate(value, field) {
+    name: 'maxValue',
+    validate(value: unknown, fieldName: string): string | null {
       if (typeof value === 'number' && value > max) {
-        return `${field} must be at most ${max}`;
+        return `${fieldName} must be at most ${max}.`;
       }
       return null;
     },
   };
 }
 
-/**
- * String must match a regex pattern.
- */
+export function email(): Validator {
+  return {
+    name: 'email',
+    validate(value: unknown, fieldName: string): string | null {
+      if (typeof value === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        return `${fieldName} must be a valid email address.`;
+      }
+      return null;
+    },
+  };
+}
+
+export function url(): Validator {
+  return {
+    name: 'url',
+    validate(value: unknown, fieldName: string): string | null {
+      if (typeof value === 'string') {
+        try {
+          new URL(value);
+        } catch {
+          return `${fieldName} must be a valid URL.`;
+        }
+      }
+      return null;
+    },
+  };
+}
+
 export function pattern(regex: RegExp, message?: string): Validator {
   return {
     name: 'pattern',
-    validate(value, field) {
+    validate(value: unknown, fieldName: string): string | null {
       if (typeof value === 'string' && !regex.test(value)) {
-        return message ?? `${field} is not in a valid format`;
+        return message ?? `${fieldName} does not match the required pattern.`;
       }
       return null;
     },
   };
 }
 
-/**
- * Must be a valid email format.
- */
-export function email(): Validator {
-  return pattern(
-    /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
-    'Must be a valid email address'
-  );
-}
-
-/**
- * Must be a valid URL format.
- */
-export function url(): Validator {
-  return pattern(
-    /^https?:\/\/.+/,
-    'Must be a valid URL'
-  );
-}
-
-/**
- * Value must be one of the allowed values.
- */
-export function oneOf(allowed: unknown[]): Validator {
+export function oneOf(...allowed: unknown[]): Validator {
   return {
     name: 'oneOf',
-    validate(value, field) {
+    validate(value: unknown, fieldName: string): string | null {
       if (!allowed.includes(value)) {
-        return `${field} must be one of: ${allowed.join(', ')}`;
+        return `${fieldName} must be one of: ${allowed.join(', ')}.`;
       }
       return null;
     },
   };
 }
 
-/**
- * Custom validation function.
- */
-export function custom(fn: (value: unknown) => string | null): Validator {
+export function integer(): Validator {
   return {
-    name: 'custom',
-    validate(value, field) {
-      return fn(value) ?? null;
+    name: 'integer',
+    validate(value: unknown, fieldName: string): string | null {
+      if (typeof value === 'number' && !Number.isInteger(value)) {
+        return `${fieldName} must be an integer.`;
+      }
+      return null;
     },
   };
 }
 
-// ─── Validation Runner ────────────────────────────────────────────────────────
-
-/**
- * Run validators against a value.
- */
-export function validateField(
-  value: unknown,
-  fieldName: string,
-  validators: Validator[]
-): string[] {
-  const errors: string[] = [];
-  for (const validator of validators) {
-    const error = validator.validate(value, fieldName);
-    if (error) {
-      errors.push(error);
-    }
-  }
-  return errors;
+export function positive(): Validator {
+  return {
+    name: 'positive',
+    validate(value: unknown, fieldName: string): string | null {
+      if (typeof value === 'number' && value <= 0) {
+        return `${fieldName} must be a positive number.`;
+      }
+      return null;
+    },
+  };
 }
 
-/**
- * Validate all fields of a model instance.
- */
-export function validateModel(
-  data: Record<string, unknown>,
-  fields: Map<string, { validators?: Validator[] }>,
-  modelClassName: string
-): ValidationResult {
-  const errors: string[] = [];
+// ─── Validation Runner ───────────────────────────────────────────────────────
 
-  for (const [fieldKey, fieldDef] of fields) {
-    if (!fieldDef.validators?.length) continue;
-
-    const value = data[fieldKey];
-    const fieldErrors = validateField(value, fieldKey, fieldDef.validators);
-    errors.push(...fieldErrors);
-  }
-
-  if (errors.length > 0) {
-    throw new ValidationError(modelClassName, errors);
-  }
-
-  return { valid: true, errors: [] };
-}
-
-/**
- * Custom error class for validation failures.
- */
 export class ValidationError extends Error {
-  public modelClass: string;
-  public errors: string[];
+  errors: Record<string, string[]>;
 
-  constructor(modelClass: string, errors: string[]) {
-    super(`Validation failed for ${modelClass}: ${errors.join('; ')}`);
+  constructor(errors: Record<string, string[]>) {
+    super('Validation failed');
     this.name = 'ValidationError';
-    this.modelClass = modelClass;
     this.errors = errors;
   }
+}
+
+/**
+ * Validate a model instance against its field validators.
+ * Returns errors object or throws ValidationError.
+ */
+export function validateModel(instance: Record<string, unknown>, fields: Map<string, { validators?: Validator[]; verboseName?: string }>): Record<string, string[]> {
+  const errors: Record<string, string[]> = {};
+
+  for (const [propertyKey, fieldDef] of fields) {
+    if (!fieldDef.validators?.length) continue;
+
+    const value = instance[propertyKey];
+    const fieldErrors: string[] = [];
+
+    for (const validator of fieldDef.validators) {
+      const error = validator.validate(value, fieldDef.verboseName ?? propertyKey);
+      if (error) {
+        fieldErrors.push(error);
+      }
+    }
+
+    if (fieldErrors.length > 0) {
+      errors[propertyKey] = fieldErrors;
+    }
+  }
+
+  return errors;
 }

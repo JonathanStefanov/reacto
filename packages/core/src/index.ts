@@ -2,44 +2,10 @@
  * @reacto/core — The heart of Reacto
  *
  * Django-style ORM for TypeScript/React applications.
- *
- * @example
- * ```ts
- * import { Model, Field, configureDatabase, ModelManager } from '@reacto/core';
- *
- * // Configure database
- * configureDatabase({
- *   host: 'localhost',
- *   port: 5432,
- *   database: 'myapp',
- *   user: 'postgres',
- *   password: 'secret',
- * });
- *
- * // Define a model
- * @Model({ tableName: 'users' })
- * class User extends Model {
- *   @Field({ type: 'string', maxLength: 150, unique: true })
- *   username: string;
- *
- *   @Field({ type: 'email' })
- *   email: string;
- *
- *   @Field({ type: 'boolean', default: false })
- *   isActive: boolean;
- * }
- *
- * // Create
- * const user = await ModelManager.create(User, { username: 'john', email: 'john@example.com' });
- *
- * // Query
- * const users = await ModelManager.objects(User).filter({ isActive: true }).all();
- * const user = await ModelManager.objects(User).get({ id: 1 });
- * ```
  */
 import 'reflect-metadata';
 
-// ─── Core exports ─────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type {
   FieldType,
@@ -49,9 +15,11 @@ export type {
   ModelClass,
   ModelIndex,
   RelationType,
+  RelationOptions,
   RelationDefinition,
-  ForeignKeyConstraint,
-  Id,
+  SignalType,
+  SignalHandler,
+  Validator,
   WhereClause,
   WhereOperator,
   OrderClause,
@@ -70,13 +38,27 @@ export type {
   DropIndexOperation,
   RenameTableOperation,
   RenameColumnOperation,
+  AddForeignKeyOperation,
+  DropForeignKeyOperation,
   ColumnDefinition,
   DatabaseConfig,
 } from './types.js';
 
+// ─── Model base class ────────────────────────────────────────────────────────
+
+export { Model } from './types.js';
+
 // ─── Decorators ───────────────────────────────────────────────────────────────
 
-export { Field, ModelDecorator as Model, ForeignKey, OneToOne, OneToMany, ManyToOne } from './decorators/index.js';
+export {
+  Field,
+  ModelDecorator as ModelDecor,
+  ForeignKey,
+  OneToOne,
+  OneToMany,
+  ManyToOne,
+  Signal,
+} from './decorators/index.js';
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 
@@ -126,32 +108,24 @@ export {
 
 export { fieldTypeToPgType, fieldToColumn, columnToSql } from './fields/index.js';
 
-// ─── Signals ───────────────────────────────────────────────────────────────
+// ─── Signals ──────────────────────────────────────────────────────────────────
 
-export {
-  preSave,
-  postSave,
-  preDelete,
-  postDelete,
-  clearSignals,
-  getSignalCount,
-} from './signals/index.js';
+export { runSignal, getSignals, clearSignals } from './signals/index.js';
 
-// ─── Validators ────────────────────────────────────────────────────────────
+// ─── Validators ───────────────────────────────────────────────────────────────
 
 export {
   required,
   minLength,
   maxLength,
-  min,
-  max,
+  minValue,
+  maxValue,
+  email,
+  url,
   pattern,
-  email as emailValidator,
-  url as urlValidator,
   oneOf,
-  custom,
-  validateField,
+  integer,
+  positive,
   validateModel,
   ValidationError,
 } from './validators/index.js';
-export type { ValidationResult } from './validators/index.js';
