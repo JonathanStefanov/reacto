@@ -1,6 +1,6 @@
 {
   "name": "reacto",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Django for React — A full-stack TypeScript framework with Django-style ORM, auto-generated APIs, and React frontend",
   "workspaces": [

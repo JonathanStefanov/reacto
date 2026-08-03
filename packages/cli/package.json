@@ -1,6 +1,6 @@
 {
   "name": "@reacto-org/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reacto CLI — manage.py equivalent for Reacto projects",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

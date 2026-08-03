@@ -1,6 +1,6 @@
 {
   "name": "@reacto-org/frontend",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reacto Frontend — Auto-generated React hooks, CRUD pages, and admin panel",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

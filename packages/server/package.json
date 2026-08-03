@@ -1,6 +1,6 @@
 {
   "name": "@reacto-org/server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reacto HTTP server — Express-like with auto-generated API routes",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
