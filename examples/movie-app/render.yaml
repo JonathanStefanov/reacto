@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: cinelog
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npx tsx examples/movie-app/server.ts
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: cinelog-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: cinelog-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: cinelog-db
+          property: database
+      - key: DB_USER
+        fromDatabase:
+          name: cinelog-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: cinelog-db
+          property: password
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+
+databases:
+  - name: cinelog-db
+    plan: free
+    databaseName: movieapp
+    postgresMajorVersion: "16"

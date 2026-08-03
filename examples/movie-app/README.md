@@ -2,9 +2,11 @@
 
 **Django-style Reacto app.** Models, views, routes, tasks are auto-discovered.
 
-## Quick Start
+## Quick Start (Local)
 
 ```bash
+git clone https://github.com/JonathanStefanov/reacto.git
+cd reacto && npm install
 createdb movieapp
 npx tsx examples/movie-app/seed.ts
 npx tsx examples/movie-app/server.ts
@@ -13,56 +15,74 @@ npx tsx examples/movie-app/server.ts
 
 **Test:** `cine@example.com` / `password123`
 
-## That's It
+## Deploy to Render
 
-```tsx
-// server.ts — the entire file
-import { createSSRApp } from '@reacto-org/ssr';
-createSSRApp({ database: { database: 'movieapp' } });
+One-click deploy using `render.yaml`:
+
+1. Push this repo to GitHub
+2. Go to [render.com](https://render.com) → **New** → **Blueprint**
+3. Connect your repo → Render detects `render.yaml` automatically
+4. Click **Apply** — creates web service + PostgreSQL database
+
+Or manually:
+
+1. **New Web Service** → connect repo
+2. **Build:** `npm install`
+3. **Start:** `npx tsx examples/movie-app/server.ts`
+4. **Add PostgreSQL** database (free tier)
+5. **Env vars:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `SESSION_SECRET`
+
+After deploy, seed the database:
+
+```bash
+# In Render Shell (or locally with remote DB URL)
+npx tsx examples/movie-app/seed.ts
 ```
 
-**No manual imports. No registration. Just create files:**
+## Project Structure
 
 ```
 movie-app/
 ├── server.ts              ← That's the whole file
 │
 ├── models/                ← Auto-discovered
-│   ├── User.ts
-│   ├── Movie.ts
-│   └── Review.ts
+│   ├── User.ts            # Password hashing via signal
+│   ├── Movie.ts           # Auto-recalc rating
+│   ├── Review.ts          # Rating validation
+│   └── ChatMessage.ts
 │
 ├── views/                 ← Auto-mounted as pages
-│   ├── HomePage.tsx       ← GET /
-│   ├── MovieDetailPage.tsx ← GET /moviedetailpage
-│   ├── LoginPage.tsx      ← GET /loginpage
-│   └── ProfilePage.tsx    ← GET /profilepage
+│   ├── HomePage.tsx       # GET / (movie list + search)
+│   ├── MovieDetailPage.tsx # GET /moviedetailpage?id=
+│   ├── LoginPage.tsx      # GET /loginpage
+│   ├── RegisterPage.tsx   # GET /registerpage
+│   └── ProfilePage.tsx    # GET /profilepage
 │
 ├── routes/                ← Auto-mounted as handlers
-│   └── index.ts           ← POST /auth/login, etc.
+│   └── index.ts           # Auth, reviews
 │
 ├── tasks/                 ← Auto-discovered
-│   └── email.ts           ← Background email job
+│   └── email.ts           # Welcome email
 │
-└── public/                ← Static files
-    └── styles.css
+├── public/                ← Static files
+│   ├── styles.css
+│   └── client.js
+│
+├── seed.ts                ← Seed script
+├── render.yaml            ← Render deploy config
+└── README.md
 ```
 
-## Django Comparison
+## How It Works
 
-| Django | Reacto | Convention |
-|---|---|---|
-| `models.py` | `models/*.ts` | Auto-imported, decorators register |
-| `views.py` | `views/*.tsx` | `export default serverComponent(...)` |
-| `urls.py` | `routes/*.ts` | `export const x = route(...)` |
-| `tasks.py` | `tasks/*.ts` | `export const x = task(...)` |
-| `manage.py` | `server.ts` | `createSSRApp()` |
-| `settings.py` | Config object | Passed to `createSSRApp()` |
-
-## How Views Work
-
+**server.ts — the entire file:**
 ```tsx
-// views/HomePage.tsx — export default = auto-mounted at /
+import { createSSRApp } from '@reacto-org/ssr';
+await createSSRApp({ database: { database: 'movieapp' } });
+```
+
+**views/HomePage.tsx — auto-mounted at `/`:**
+```tsx
 import { serverComponent, ModelManager } from '@reacto-org/ssr';
 import { Movie } from '../models/index.js';
 
@@ -72,16 +92,8 @@ export default serverComponent(async (ctx) => {
 });
 ```
 
-**Naming convention → URL path:**
-- `HomePage.tsx` → `/`
-- `MovieDetailPage.tsx` → `/moviedetailpage`
-- `LoginPage.tsx` → `/loginpage`
-- `ProfilePage.tsx` → `/profilepage`
-
-## How Routes Work
-
+**routes/index.ts — auto-mounted:**
 ```tsx
-// routes/auth.ts — export named = auto-mounted
 import { route } from '@reacto-org/ssr';
 
 export const login = route('post', '/auth/login', async (req, res) => {
@@ -89,7 +101,21 @@ export const login = route('post', '/auth/login', async (req, res) => {
 });
 ```
 
+No manual imports. No registration. Convention over configuration.
+
+## Django Comparison
+
+| Django | Reacto |
+|---|---|
+| `models.py` | `models/*.ts` |
+| `views.py` | `views/*.tsx` |
+| `urls.py` | `routes/*.ts` |
+| `tasks.py` | `tasks/*.ts` |
+| `manage.py` | `server.ts` |
+| `settings.py` | Config object |
+
 ## Learn More
 
 - [Reacto](https://github.com/JonathanStefanov/reacto)
 - [@reacto-org/ssr](https://www.npmjs.com/package/@reacto-org/ssr)
+- [@reacto-org/core](https://www.npmjs.com/package/@reacto-org/core)
