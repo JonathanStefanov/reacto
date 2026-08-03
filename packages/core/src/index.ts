@@ -121,6 +121,26 @@ export {
 } from './cache/index.js';
 export type { CacheBackend, MemoryCacheOptions, RedisCacheOptions } from './cache/index.js';
 
+// ─── Background Tasks ─────────────────────────────────────────────────────────
+
+export {
+  MemoryTaskQueue,
+  RedisTaskQueue,
+  getTaskQueue,
+  configureTaskQueue,
+  resetTaskQueue,
+  createTask,
+  createTaskAdminRoutes,
+} from './tasks/index.js';
+export type {
+  TaskStatus,
+  TaskOptions,
+  TaskJob,
+  TaskQueueOptions,
+  TaskQueueBackend,
+  RedisTaskQueueOptions,
+} from './tasks/index.js';
+
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
 export {
