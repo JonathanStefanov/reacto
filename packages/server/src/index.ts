@@ -14,6 +14,7 @@ import { requestLogger } from './middleware/logger.js';
 import { ReactoWebSocketServer } from './websocket/index.js';
 import type { WebSocketServerOptions } from './websocket/index.js';
 import { createAdminRoutes, generateAdminHtml } from './admin/index.js';
+import { createTaskAdminRoutes } from '@reacto/core';
 
 export interface ServerOptions {
   cors?: cors.CorsOptions;
@@ -67,6 +68,7 @@ export function createServer(options: ServerOptions = {}): ServerResult {
   // Admin dashboard
   if (options.admin !== false) {
     app.use(`${basePath}/_admin`, createAdminRoutes());
+    app.use(`${basePath}/_admin/tasks`, createTaskAdminRoutes());
     app.get('/admin', (_req, res) => {
       res.type('html').send(generateAdminHtml(basePath));
     });
