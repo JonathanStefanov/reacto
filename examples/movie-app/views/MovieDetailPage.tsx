@@ -1,23 +1,24 @@
 /**
- * Movie Detail Page — shows movie info, reviews, review form
+ * Movie Detail Page — movie info + reviews + review form
  */
+import React from 'react';
 import { ModelManager } from '@reacto-org/core';
 import { serverComponent } from '@reacto-org/ssr';
-import React from 'react';
 import { Movie, Review } from '../models/index.js';
 import { Layout } from '../templates/Layout.js';
 
-export const MovieDetailPage = serverComponent(async (ctx, props) => {
-  const movieId = parseInt((props as { id: string }).id);
+export const MovieDetailPage = serverComponent(async (ctx) => {
+  const movieId = parseInt(ctx.params.id);
 
   let movie: InstanceType<typeof Movie>;
   try {
     movie = await ModelManager.objects(Movie).get({ id: movieId });
   } catch {
     return (
-      <Layout title="Not Found">
-        <div className="container">
-          <p className="empty-state">Movie not found. <a href="/">Go back</a></p>
+      <Layout title="Not Found" user={ctx.user}>
+        <div style={{ padding: 40, textAlign: 'center' }}>
+          <h2>Movie not found</h2>
+          <a href="/" style={{ color: '#6c5ce7' }}>← Back to movies</a>
         </div>
       </Layout>
     );
@@ -29,68 +30,157 @@ export const MovieDetailPage = serverComponent(async (ctx, props) => {
     .orderBy('-createdAt')
     .all();
 
-  const user = ctx.user;
   const error = ctx.query.error;
 
   return (
-    <Layout title={`${movie.title} — CineLog`}>
-      <div className="container">
-        <a href="/" className="btn btn-outline" style={{ marginBottom: '16px' }}>← Back to Movies</a>
+    <Layout title={`${movie.title} — CineLog`} user={ctx.user}>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: 24 }}>
+        <a href="/" style={{ color: '#6c5ce7', fontSize: 14 }}>← Back to Movies</a>
 
-        <div className="movie-detail">
-          <div className="movie-detail-poster">{getGenreEmoji(movie.genre)}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, marginTop: 16 }}>
+          {/* Poster */}
+          <div style={{
+            width: 200,
+            height: 280,
+            background: '#16213e',
+            borderRadius: 10,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 64,
+          }}>
+            {getGenreEmoji(movie.genre)}
+          </div>
+
+          {/* Info */}
           <div>
-            <h1>{movie.title}</h1>
-            <div className="movie-detail-meta">
+            <h1 style={{ fontSize: 28, color: '#fff', margin: '0 0 8px' }}>{movie.title}</h1>
+            <div style={{ fontSize: 14, color: '#888', marginBottom: 16 }}>
               {movie.director} · {movie.year} · {movie.genre || 'Uncategorized'}
             </div>
 
-            <div className="stats-row">
-              <div className="stat">
-                <div className="stat-num">⭐ {movie.averageRating || '—'}</div>
-                <div className="stat-label">Rating</div>
+            <div style={{ display: 'flex', gap: 24, marginBottom: 20 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>
+                  ⭐ {movie.averageRating || '—'}
+                </div>
+                <div style={{ fontSize: 12, color: '#888' }}>Rating</div>
               </div>
-              <div className="stat">
-                <div className="stat-num">{movie.reviewCount}</div>
-                <div className="stat-label">Reviews</div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>
+                  {movie.reviewCount}
+                </div>
+                <div style={{ fontSize: 12, color: '#888' }}>Reviews</div>
               </div>
             </div>
 
-            <p className="movie-detail-desc">{movie.description}</p>
+            <p style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>{movie.description}</p>
 
-            {error && <div className="error-msg">{decodeURIComponent(error)}</div>}
-
-            {user ? (
-              <form method="POST" action={`/movies/${movieId}/reviews`} className="review-form">
-                <h3>✍️ Write a Review</h3>
-                <div className="star-input">
-                  {[10,9,8,7,6,5,4,3,2,1].map(n => (
-                    <label key={n} style={{ cursor: 'pointer', fontSize: '20px' }}>
-                      <input type="radio" name="rating" value={n} required style={{ display: 'none' }} />
-                      <span className="star-hover">★</span>
-                    </label>
-                  ))}
-                </div>
-                <input type="text" name="comment" placeholder="What did you think?" className="review-input" />
-                <button type="submit" className="btn btn-primary">Submit Review</button>
-              </form>
-            ) : (
-              <p className="login-prompt"><a href="/login">Login</a> to write a review</p>
+            {error && (
+              <div style={{
+                background: 'rgba(231,76,60,0.1)',
+                border: '1px solid #e74c3c',
+                color: '#e74c3c',
+                padding: '10px 14px',
+                borderRadius: 8,
+                fontSize: 13,
+                marginBottom: 16,
+              }}>
+                {decodeURIComponent(error)}
+              </div>
             )}
 
-            <h3 className="reviews-title">📝 Reviews</h3>
-            {reviews.length > 0 ? reviews.map(review => (
-              <div key={review.id} className="review-item">
-                <div className="review-header">
-                  <span className="review-user">{review.user?.username || 'Anonymous'}</span>
-                  <span style={{ color: '#f1c40f' }}>{'⭐'.repeat(review.rating)}</span>
+            {/* Review Form */}
+            {ctx.user ? (
+              <form method="POST" action={`/movies/${movieId}/reviews`} style={{
+                background: '#16213e',
+                padding: 16,
+                borderRadius: 8,
+                marginBottom: 24,
+              }}>
+                <h3 style={{ fontSize: 14, marginBottom: 12, color: '#fff' }}>✍️ Write a Review</h3>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  <label style={{ fontSize: 13, color: '#888' }}>Rating:</label>
+                  <select name="rating" required style={{
+                    background: '#1a1a2e',
+                    border: '1px solid #2a2a4a',
+                    color: '#e0e0e0',
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                  }}>
+                    <option value="">Select...</option>
+                    {[10,9,8,7,6,5,4,3,2,1].map(n => (
+                      <option key={n} value={n}>{n} ⭐</option>
+                    ))}
+                  </select>
                 </div>
-                {review.comment && <p className="review-comment">{review.comment}</p>}
-                <span className="review-date">
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <input
+                    type="text"
+                    name="comment"
+                    placeholder="What did you think?"
+                    style={{
+                      flex: 1,
+                      background: '#1a1a2e',
+                      border: '1px solid #2a2a4a',
+                      color: '#e0e0e0',
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      fontSize: 14,
+                    }}
+                  />
+                  <button type="submit" style={{
+                    background: '#6c5ce7',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: 8,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                  }}>
+                    Submit
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div style={{
+                background: '#16213e',
+                padding: 16,
+                borderRadius: 8,
+                marginBottom: 24,
+                textAlign: 'center',
+              }}>
+                <a href="/login" style={{ color: '#6c5ce7' }}>Login</a> to write a review
+              </div>
+            )}
+
+            {/* Reviews */}
+            <h3 style={{ fontSize: 16, marginBottom: 12, color: '#fff' }}>📝 Reviews</h3>
+            {reviews.length > 0 ? reviews.map(review => (
+              <div key={review.id} style={{
+                padding: '12px 0',
+                borderBottom: '1px solid #2a2a4a',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                    {review.user?.username || 'Anonymous'}
+                  </span>
+                  <span style={{ color: '#f1c40f', fontSize: 12 }}>
+                    {'⭐'.repeat(review.rating)}
+                  </span>
+                </div>
+                {review.comment && (
+                  <p style={{ fontSize: 13, lineHeight: 1.5, margin: '0 0 4px' }}>{review.comment}</p>
+                )}
+                <span style={{ fontSize: 12, color: '#888' }}>
                   {new Date(review.watchedAt || review.createdAt).toLocaleDateString()}
                 </span>
               </div>
-            )) : <p className="empty-state">No reviews yet. Be the first!</p>}
+            )) : (
+              <p style={{ color: '#888', textAlign: 'center', padding: 20 }}>
+                No reviews yet. Be the first!
+              </p>
+            )}
           </div>
         </div>
       </div>

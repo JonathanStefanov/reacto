@@ -1,41 +1,26 @@
 /**
  * Routes — URL routing and form handlers
  *
- * Like Django's urls.py. Maps URLs to views and form handlers.
+ * Like Django's urls.py. Handles POST forms and API endpoints.
  */
 import type { Express } from 'express';
 import { ModelManager } from '@reacto-org/core';
-import { hashPassword } from '@reacto-org/server';
-import { User, Review } from '../models/index.js';
+import { User, Review, ChatMessage } from '../models/index.js';
 import { sendWelcomeEmail } from '../tasks/email.js';
 
 export function registerRoutes(app: Express) {
 
-  // ─── Auth Routes ────────────────────────────────────────────────────
+  // ─── Auth ───────────────────────────────────────────────────────────
 
   app.post('/auth/register', async (req, res) => {
     try {
       const { username, email, password } = req.body;
-
       const existing = await ModelManager.objects(User).filter({ email }).first();
-      if (existing) {
-        return res.redirect('/register?error=Email+already+registered');
-      }
+      if (existing) return res.redirect('/register?error=Email+already+registered');
 
-      const user = await ModelManager.create(User, {
-        username,
-        email,
-        password, // hashed via signal
-      });
-
+      const user = await ModelManager.create(User, { username, email, password });
       await sendWelcomeEmail(user.id);
-
-      (req as any).login({
-        userId: user.id,
-        email: user.email,
-        username: user.username,
-      });
-
+      (req as any).login({ userId: user.id, email: user.email, username: user.username });
       res.redirect('/');
     } catch (error) {
       res.redirect(`/register?error=${encodeURIComponent((error as Error).message)}`);
@@ -45,24 +30,14 @@ export function registerRoutes(app: Express) {
   app.post('/auth/login', async (req, res) => {
     try {
       const { email, password } = req.body;
-
       const user = await ModelManager.objects(User).filter({ email }).first();
-      if (!user) {
-        return res.redirect('/login?error=Invalid+credentials');
-      }
+      if (!user) return res.redirect('/login?error=Invalid+credentials');
 
       const bcrypt = await import('bcryptjs');
       const valid = await bcrypt.compare(password, user.password);
-      if (!valid) {
-        return res.redirect('/login?error=Invalid+credentials');
-      }
+      if (!valid) return res.redirect('/login?error=Invalid+credentials');
 
-      (req as any).login({
-        userId: user.id,
-        email: user.email,
-        username: user.username,
-      });
-
+      (req as any).login({ userId: user.id, email: user.email, username: user.username });
       res.redirect('/');
     } catch (error) {
       res.redirect(`/login?error=${encodeURIComponent((error as Error).message)}`);
@@ -74,7 +49,7 @@ export function registerRoutes(app: Express) {
     res.redirect('/');
   });
 
-  // ─── Review Routes ──────────────────────────────────────────────────
+  // ─── Reviews ────────────────────────────────────────────────────────
 
   app.post('/movies/:id/reviews', async (req, res) => {
     const session = (req as any).session;
@@ -85,12 +60,8 @@ export function registerRoutes(app: Express) {
       const { rating, comment } = req.body;
 
       const existing = await ModelManager.objects(Review)
-        .filter({ movieId, userId: session.userId })
-        .first();
-
-      if (existing) {
-        return res.redirect(`/movies/${movieId}?error=Already+reviewed`);
-      }
+        .filter({ movieId, userId: session.userId }).first();
+      if (existing) return res.redirect(`/movies/${movieId}?error=Already+reviewed`);
 
       await ModelManager.create(Review, {
         movieId,
@@ -109,13 +80,19 @@ export function registerRoutes(app: Express) {
   // ─── Chat API ───────────────────────────────────────────────────────
 
   app.get('/api/chat/messages', async (_req, res) => {
-    const { ChatMessage } = await import('../models/index.js');
     const messages = await ModelManager.objects(ChatMessage)
       .with('user')
       .orderBy('-createdAt')
       .limit(50)
       .all();
-
     res.json({ messages: messages.reverse().map(m => m.toJSON()) });
+  });
+
+  // ─── Auth API (for client.js) ───────────────────────────────────────
+
+  app.get('/api/auth/me', (req, res) => {
+    const session = (req as any).session;
+    if (!session) return res.status(401).json({ error: 'Not authenticated' });
+    res.json({ user: { id: session.userId, email: session.email, username: session.username } });
   });
 }

@@ -1,6 +1,3 @@
-/**
- * User model
- */
 import { Field, Model, OneToMany, Signal } from '@reacto-org/core';
 import { Review } from './Review.js';
 import { ChatMessage } from './ChatMessage.js';
@@ -18,9 +15,6 @@ export class User {
 
   @Field({ type: 'string', maxLength: 500, nullable: true })
   bio?: string;
-
-  @Field({ type: 'string', nullable: true })
-  avatarUrl?: string;
 
   @Field({ type: 'boolean', default: true })
   isActive!: boolean;

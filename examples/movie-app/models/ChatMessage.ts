@@ -1,6 +1,3 @@
-/**
- * ChatMessage model
- */
 import { Field, Model, ForeignKey, Signal, Validators } from '@reacto-org/core';
 import { User } from './User.js';
 
@@ -19,9 +16,7 @@ export class ChatMessage {
 
   @Signal('preSave')
   validateContent() {
-    const min = Validators.minLength(this.content, 'content', 1);
-    if (min) throw new Error(min);
-    const max = Validators.maxLength(this.content, 'content', 2000);
-    if (max) throw new Error(max);
+    const err = Validators.minLength(this.content, 'content', 1);
+    if (err) throw new Error(err);
   }
 }

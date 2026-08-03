@@ -1,7 +1,7 @@
 {
   "name": "@reacto-org/ssr",
   "version": "0.1.0",
-  "description": "Server-Side Rendering with Partial Hydration for Reacto",
+  "description": "Server-Side Rendering for Reacto — Django-style server components",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
@@ -13,23 +13,21 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@reacto-org/core": "*",
-    "@reacto-org/server": "*",
+    "express": "^5.0.0",
+    "cookie-parser": "^1.4.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cookie-parser": "^1.4.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.5.0"
-  },
-  "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
   },
   "license": "MIT"
 }

@@ -1,6 +1,3 @@
-/**
- * Review model
- */
 import { Field, Model, ForeignKey, Signal } from '@reacto-org/core';
 import { Movie } from './Movie.js';
 import { User } from './User.js';
@@ -27,8 +24,6 @@ export class Review {
 
   @Signal('preSave')
   validateRating() {
-    if (this.rating < 1 || this.rating > 10) {
-      throw new Error('Rating must be between 1 and 10');
-    }
+    if (this.rating < 1 || this.rating > 10) throw new Error('Rating must be 1-10');
   }
 }

@@ -1,100 +1,94 @@
 /**
  * Client-side JavaScript — minimal interactivity.
  *
- * Handles: navigation (auth-aware), star rating hover, chat.
+ * SSR handles the HTML. This handles:
+ * - Chat panel (WebSocket)
+ * - Star rating hover effects
  */
-
-// ─── Navigation ──────────────────────────────────────────────────────────────
-
-async function initNav() {
-  const nav = document.getElementById('nav');
-  if (!nav) return;
-
-  try {
-    const res = await fetch('/api/auth/me');
-    if (res.ok) {
-      const { user } = await res.json();
-      nav.innerHTML = `
-        <a href="/" class="nav-btn">🎬 Movies</a>
-        <a href="/profile" class="nav-btn">📋 My List</a>
-        <span class="user-badge">
-          <span class="avatar">${user.username[0].toUpperCase()}</span>
-          ${user.username}
-        </span>
-        <a href="/auth/logout" class="nav-btn">Logout</a>
-      `;
-    } else {
-      nav.innerHTML = `
-        <a href="/" class="nav-btn">🎬 Movies</a>
-        <a href="/login" class="nav-btn">🔑 Login</a>
-        <a href="/register" class="nav-btn">🚀 Register</a>
-      `;
-    }
-  } catch {
-    nav.innerHTML = `<a href="/" class="nav-btn">🎬 Movies</a>`;
-  }
-}
-
-// ─── Star Rating Hover ───────────────────────────────────────────────────────
-
-function initStarRating() {
-  const container = document.querySelector('.star-input');
-  if (!container) return;
-
-  const labels = container.querySelectorAll('label');
-
-  labels.forEach(label => {
-    const input = label.querySelector('input');
-    const span = label.querySelector('span');
-    if (!input || !span) return;
-
-    label.addEventListener('mouseenter', () => {
-      const value = parseInt(input.value);
-      labels.forEach(l => {
-        const inp = l.querySelector('input');
-        const sp = l.querySelector('span');
-        if (inp && sp) {
-          sp.style.color = parseInt(inp.value) <= value ? '#f1c40f' : '#2a2a4a';
-        }
-      });
-    });
-  });
-
-  container.addEventListener('mouseleave', () => {
-    const checked = container.querySelector('input:checked');
-    const val = checked ? parseInt(checked.value) : 0;
-    labels.forEach(l => {
-      const inp = l.querySelector('input');
-      const sp = l.querySelector('span');
-      if (inp && sp) {
-        sp.style.color = parseInt(inp.value) <= val ? '#f1c40f' : '#2a2a4a';
-      }
-    });
-  });
-}
 
 // ─── Chat Panel ──────────────────────────────────────────────────────────────
 
 function initChat() {
-  // Only init chat on pages with the chat container
-  const chatContainer = document.getElementById('chat-panel');
-  if (!chatContainer) return;
+  const container = document.getElementById('chat-panel');
+  if (!container) return;
 
-  // Chat is initialized via the API version only
-  // SSR version uses page navigation, not a chat panel
+  container.innerHTML = `
+    <div style="display:flex;flex-direction:column;height:500px;background:#1a1a2e;border-radius:12px;border:1px solid #2a2a4a;overflow:hidden">
+      <div style="padding:12px 16px;border-bottom:1px solid #2a2a4a">
+        <h3 style="margin:0;font-size:14px;color:#fff">💬 Chat</h3>
+      </div>
+      <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px"></div>
+      <div style="padding:12px;border-top:1px solid #2a2a4a;display:flex;gap:8px">
+        <input id="chat-input" type="text" placeholder="Type a message..." style="flex:1;background:#16213e;border:1px solid #2a2a4a;color:#e0e0e0;padding:8px 12px;border-radius:6px;font-size:13px">
+        <button id="chat-send" style="background:#6c5ce7;color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:13px">Send</button>
+      </div>
+    </div>
+  `;
+
+  const messages = document.getElementById('chat-messages');
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send');
+
+  let currentUserId = null;
+
+  fetch('/api/auth/me')
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { currentUserId = d?.user?.id || null; })
+    .catch(() => {});
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  ws.onopen = () => {
+    console.log('🔌 Chat connected');
+    ws.send(JSON.stringify({ type: 'subscribe', channel: 'chat' }));
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'chat-history') {
+        (msg.data?.messages || []).forEach(addMsg);
+      } else if (msg.type === 'chat-message') {
+        addMsg(msg.data);
+      }
+    } catch {}
+  };
+
+  ws.onclose = () => {
+    console.log('🔌 Chat disconnected');
+    setTimeout(initChat, 3000);
+  };
+
+  function addMsg(m) {
+    if (!messages) return;
+    const self = m.userId === currentUserId;
+    const div = document.createElement('div');
+    div.style.cssText = `max-width:85%;${self ? 'align-self:flex-end' : ''}`;
+    div.innerHTML = `
+      <div style="font-size:11px;color:${self ? '#00b894' : '#6c5ce7'};margin-bottom:2px;${self ? 'text-align:right' : ''}">${esc(m.user?.username || 'Anonymous')}</div>
+      <div style="background:${self ? 'rgba(108,92,231,0.2)' : '#16213e'};padding:8px 12px;border-radius:8px;font-size:13px;line-height:1.4">${esc(m.content)}</div>
+      <div style="font-size:10px;color:#888;margin-top:2px">${new Date(m.createdAt).toLocaleTimeString()}</div>
+    `;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function send() {
+    if (!input || !input.value.trim()) return;
+    ws.send(JSON.stringify({ type: 'chat-message', data: { content: input.value.trim(), channel: 'general' } }));
+    input.value = '';
+  }
+
+  sendBtn?.addEventListener('click', send);
+  input?.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
-  initNav();
-  initStarRating();
-  initChat();
-});
+document.addEventListener('DOMContentLoaded', initChat);
