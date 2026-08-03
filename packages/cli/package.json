@@ -1,5 +1,5 @@
 {
-  "name": "reacto",
+  "name": "@reacto/cli",
   "version": "0.1.0",
   "description": "Reacto CLI — manage.py equivalent for Reacto projects",
   "main": "./dist/index.js",
