@@ -359,9 +359,40 @@ export class QuerySet<T extends Model> {
   }
 
   private buildParams(): unknown[] {
-    return (this.options.where ?? [])
-      .filter((w) => w.operator !== 'isNull' && w.operator !== 'isNotNull')
-      .map((w) => w.value);
+    const params: unknown[] = [];
+
+    // Where clause params
+    for (const w of this.options.where ?? []) {
+      if (w.operator !== 'isNull' && w.operator !== 'isNotNull') {
+        params.push(w.value);
+      }
+    }
+
+    // Search clause param
+    if (this.options.search) {
+      params.push('%' + this.options.search.query + '%');
+    }
+
+    return params;
+  }
+
+  private buildSearchSql(): string {
+    const search = this.options.search!;
+    const paramIdx = (this.options.where?.length ?? 0) + 1;
+
+    if (search.fullText) {
+      // PostgreSQL full-text search using to_tsvector / plainto_tsquery
+      const vectorExpr = search.fields
+        .map((f) => "coalesce(\"" + f + "\" , '')")
+        .join(" || ' ' || ");
+      return "to_tsvector('english', " + vectorExpr + ") @@ plainto_tsquery('english', $" + paramIdx + ")";
+    }
+
+    // ILIKE-based search across multiple fields
+    const conditions = search.fields
+      .map((f) => "\"" + f + "\" ILIKE $" + paramIdx)
+      .join(' OR ');
+    return '(' + conditions + ')';
   }
 
   private buildWhere(conditions: Record<string, unknown>): WhereClause[] {
