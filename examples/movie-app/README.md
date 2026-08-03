@@ -1,39 +1,42 @@
-# 🎬 CineLog — Movie Tracker & Chat
+# 🎬 CineLog — Movie Tracker
 
-A full-stack movie tracking app built with **Reacto**. Demonstrates both
-API-first and SSR (Server-Side Rendering) approaches.
+A **server-rendered** movie tracking app built with Reacto's SSR engine.
 
-## Two Server Options
+**Models and auth used DIRECTLY in pages** — no API layer, no fetch(),
+no token dance. Just import `ModelManager` and use it.
 
-### Option A: SSR (Server-Side Rendering)
-Server-rendered pages — models/auth used directly, zero client JS for most pages.
-
-```bash
-npx tsx examples/movie-app/server-ssr.ts
-```
-
-### Option B: API + React Client
-REST API + React SPA — full client-side interactivity.
+## Quick Start
 
 ```bash
+# 1. Install
+git clone https://github.com/JonathanStefanov/reacto.git
+cd reacto && npm install
+
+# 2. Database
+createdb movieapp
+
+# 3. Seed data
+npx tsx examples/movie-app/seed.ts
+
+# 4. Run
 npx tsx examples/movie-app/server.ts
-# In another terminal:
-cd examples/movie-app/client && npm run dev
+
+# 5. Open http://localhost:3000
 ```
 
-## SSR Architecture
+**Test accounts:**
+- `cine@example.com` / `password123`
+- `horror@example.com` / `password123`
 
-The SSR version shows Reacto's killer feature — **use models directly in pages**:
+## How It Works
+
+This is the Reacto way — **server components that use models directly**:
 
 ```tsx
-// This runs on the server — imports work directly
-import { ModelManager } from '@reacto-org/core';
-import { Movie } from './models';
-
-// Server component — no API calls, no fetch(), just use the ORM
-export const MovieListPage = serverComponent(async (ctx) => {
+// This runs on the server. No API calls. Just use the ORM.
+const HomePage = serverComponent(async (ctx) => {
   const movies = await ModelManager.objects(Movie)
-    .filter({ genre: 'Sci-Fi' })
+    .filter({ genre: ctx.query.genre })
     .cache(60)
     .all();
 
@@ -45,101 +48,75 @@ export const MovieListPage = serverComponent(async (ctx) => {
 });
 ```
 
-**Server components:**
-- Run ONLY on the server
-- Can import and use `@reacto-org/core` directly
-- Access `req.user`, `req.session` via `useServerContext()`
-- Render to HTML — ship ZERO JavaScript to client
+**Auth works directly too:**
+```tsx
+const ProfilePage = serverComponent(async (ctx) => {
+  if (!ctx.user) return <Redirect to="/login" />;
 
-**Client components** (for interactivity):
-- Chat (WebSocket)
-- Star rating hover effects
-- Search with debounce
+  const reviews = await ModelManager.objects(Review)
+    .filter({ userId: ctx.user.id })
+    .with('movie')
+    .all();
 
-## Features
-
-| Feature | SSR Version | API Version |
-|---|---|---|
-| **ORM + Relations** | ✅ Direct imports | ✅ REST endpoints |
-| **Auth** | ✅ Cookie sessions | ✅ JWT tokens |
-| **WebSocket** | ✅ Chat | ✅ Chat |
-| **Search** | ✅ Form submit | ✅ Debounced input |
-| **Caching** | ✅ QuerySet.cache() | ✅ QuerySet.cache() |
-| **Background Tasks** | ✅ Welcome email | ✅ Welcome email |
-| **Admin Dashboard** | ✅ /api/admin | ✅ /admin |
-| **Client JS** | Minimal (chat only) | Full React SPA |
-
-## Quick Start
-
-### 1. Clone & install
-
-```bash
-git clone https://github.com/JonathanStefanov/reacto.git
-cd reacto
-npm install
+  return <WatchedList reviews={reviews} />;
+});
 ```
 
-### 2. Create the database
+## Architecture
 
-```bash
-createdb movieapp
-# or: psql -c "CREATE DATABASE movieapp;"
+```
+Server-rendered (zero client JS):
+├── Movie list — search, filter, pagination
+├── Movie detail — info, reviews, rating form
+├── Login / Register — form-based auth
+├── Profile — watched movies
+└── Admin — /api/admin
+
+Client-side (minimal JS for interactivity):
+├── Chat — WebSocket real-time messaging
+├── Navigation — auth-aware navbar
+└── Star rating — hover effects
 ```
 
-### 3. Seed data
+## Pages
 
-```bash
-npx tsx examples/movie-app/seed.ts
-```
-
-**Test accounts:**
-- `cine@example.com` / `password123`
-- `horror@example.com` / `password123`
-
-### 4. Run
-
-**SSR version:**
-```bash
-npx tsx examples/movie-app/server-ssr.ts
-# Open http://localhost:3000
-```
-
-**API + React version:**
-```bash
-npx tsx examples/movie-app/server.ts
-cd examples/movie-app/client && npm run dev
-# Open http://localhost:5173
-```
+| URL | Description |
+|---|---|
+| `/` | Movie list with search, genre filter, pagination |
+| `/movies/:id` | Movie detail + reviews + review form |
+| `/login` | Login (cookie session) |
+| `/register` | Register (triggers welcome email) |
+| `/profile` | Watched movies (protected) |
+| `/api/admin` | Admin dashboard |
 
 ## Project Structure
 
 ```
 examples/movie-app/
-├── models.ts              # ORM models (User, Movie, Review, ChatMessage)
-├── server-ssr.ts          # SSR server (server components, sessions)
-├── server.ts              # API server (REST, JWT, WebSocket)
-├── seed.ts                # Database seed script
-├── README.md              # This file
-└── client/                # React client (for API version)
-    ├── package.json
-    ├── vite.config.ts
-    └── src/
-        ├── App.tsx
-        ├── hooks/
-        │   ├── useAuth.ts
-        │   └── useChat.ts
-        └── components/
-            ├── Header.tsx
-            ├── AuthForm.tsx
-            ├── MovieGrid.tsx
-            ├── MovieDetail.tsx
-            ├── ChatPanel.tsx
-            └── WatchedList.tsx
+├── server.ts          # SSR server (main entry point)
+├── server-api.ts      # API + React client version (alternative)
+├── models.ts          # ORM models
+├── seed.ts            # Seed script (4 users, 10 movies, 15 reviews)
+├── public/
+│   ├── styles.css     # Dark theme styles
+│   └── client.js      # Minimal client JS (chat, nav, star rating)
+├── client/            # React client (for API version only)
+└── README.md
 ```
+
+## SSR vs API Version
+
+| Feature | SSR (`server.ts`) | API (`server-api.ts`) |
+|---|---|---|
+| Auth | Cookie sessions | JWT tokens |
+| Data loading | Server components | REST API + fetch() |
+| Client JS | ~6KB (chat only) | ~50KB+ (full React) |
+| Interactivity | Chat + star rating | Everything |
+| How to run | `npx tsx server.ts` | `npx tsx server-api.ts` + `npm run dev` |
 
 ## Learn More
 
 - [Reacto on GitHub](https://github.com/JonathanStefanov/reacto)
-- [@reacto-org/core on npm](https://www.npmjs.com/package/@reacto-org/core)
-- [@reacto-org/server on npm](https://www.npmjs.com/package/@reacto-org/server)
-- [@reacto-org/ssr on npm](https://www.npmjs.com/package/@reacto-org/ssr)
+- [@reacto-org/ssr](https://www.npmjs.com/package/@reacto-org/ssr)
+- [@reacto-org/core](https://www.npmjs.com/package/@reacto-org/core)
+- [@reacto-org/server](https://www.npmjs.com/package/@reacto-org/server)
