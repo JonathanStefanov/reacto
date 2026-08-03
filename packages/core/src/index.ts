@@ -108,6 +108,19 @@ export {
 
 export { fieldTypeToPgType, fieldToColumn, columnToSql } from './fields/index.js';
 
+// ─── Cache ────────────────────────────────────────────────────────────────────
+
+export {
+  CacheManager,
+  MemoryCacheBackend,
+  RedisCacheBackend,
+  getCache,
+  configureCache,
+  resetCache,
+  queryCacheKey,
+} from './cache/index.js';
+export type { CacheBackend, MemoryCacheOptions, RedisCacheOptions } from './cache/index.js';
+
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
 export {
