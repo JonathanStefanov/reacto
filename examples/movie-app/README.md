@@ -1,9 +1,49 @@
 # 🎬 CineLog — Movie Tracker
 
-A **server-rendered** movie tracking app built with Reacto's SSR engine.
+A **Django-style** movie tracking app built with Reacto.
 
-**Models and auth used DIRECTLY in pages** — no API layer, no fetch(),
-no token dance. Just import `ModelManager` and use it.
+Server-rendered pages using models and auth **directly** — no API layer.
+
+## Project Structure
+
+```
+movie-app/
+├── server.ts          # Entry point — configures and starts the app
+│
+├── models/            # Database models (like Django's models.py)
+│   ├── index.ts       #   Barrel export
+│   ├── User.ts        #   User model with password hashing
+│   ├── Movie.ts       #   Movie model with rating signal
+│   ├── Review.ts      #   Review model with validation
+│   └── ChatMessage.ts #   Chat message model
+│
+├── views/             # Server components (like Django's views.py)
+│   ├── index.ts       #   Barrel export
+│   ├── HomePage.tsx   #   Movie list with search/filter
+│   ├── MovieDetailPage.tsx
+│   ├── LoginPage.tsx
+│   ├── RegisterPage.tsx
+│   └── ProfilePage.tsx
+│
+├── routes/            # URL routing + form handlers (like Django's urls.py)
+│   └── index.ts       #   Auth routes, review submission, chat API
+│
+├── tasks/             # Background jobs (like Django's tasks.py + Celery)
+│   └── email.ts       #   Welcome email task
+│
+├── templates/         # Layout components (like Django's templates/)
+│   └── Layout.tsx     #   Base HTML layout
+│
+├── middleware/         # Request middleware (like Django's middleware/)
+│   └── (reserved)
+│
+├── public/            # Static files (like Django's STATIC_ROOT)
+│   ├── styles.css     #   Dark theme styles
+│   └── client.js      #   Minimal client JS (nav, star hover)
+│
+├── seed.ts            # Database seed script
+└── README.md          # This file
+```
 
 ## Quick Start
 
@@ -15,7 +55,7 @@ cd reacto && npm install
 # 2. Database
 createdb movieapp
 
-# 3. Seed data
+# 3. Seed
 npx tsx examples/movie-app/seed.ts
 
 # 4. Run
@@ -24,33 +64,45 @@ npx tsx examples/movie-app/server.ts
 # 5. Open http://localhost:3000
 ```
 
-**Test accounts:**
-- `cine@example.com` / `password123`
-- `horror@example.com` / `password123`
+**Test accounts:** `cine@example.com` / `password123`
+
+## Django Comparison
+
+| Django | Reacto | File |
+|---|---|---|
+| `models.py` | `models/` | Model definitions with fields, relations, signals |
+| `views.py` | `views/` | Server components that use models directly |
+| `urls.py` | `routes/` | URL routing and form handlers |
+| `tasks.py` | `tasks/` | Background jobs (email, processing) |
+| `templates/` | `templates/` | Layout components |
+| `middleware/` | `middleware/` | Request middleware |
+| `static/` | `public/` | CSS, JS, images |
+| `manage.py` | `server.ts` | Entry point |
+| `django-admin startproject` | `reacto init` | Project scaffolding (coming soon) |
 
 ## How It Works
 
-This is the Reacto way — **server components that use models directly**:
+**Server components use models directly — no API calls:**
 
 ```tsx
-// This runs on the server. No API calls. Just use the ORM.
-const HomePage = serverComponent(async (ctx) => {
+// views/HomePage.tsx
+import { ModelManager } from '@reacto-org/core';
+import { Movie } from '../models/index.js';
+
+export const HomePage = serverComponent(async (ctx) => {
   const movies = await ModelManager.objects(Movie)
-    .filter({ genre: ctx.query.genre })
+    .search(['title', 'director'], ctx.query.search)
     .cache(60)
     .all();
 
-  return (
-    <div>
-      {movies.map(m => <MovieCard key={m.id} movie={m} />)}
-    </div>
-  );
+  return <MovieGrid movies={movies} />;
 });
 ```
 
-**Auth works directly too:**
+**Auth works via sessions — no token dance:**
+
 ```tsx
-const ProfilePage = serverComponent(async (ctx) => {
+export const ProfilePage = serverComponent(async (ctx) => {
   if (!ctx.user) return <Redirect to="/login" />;
 
   const reviews = await ModelManager.objects(Review)
@@ -62,61 +114,8 @@ const ProfilePage = serverComponent(async (ctx) => {
 });
 ```
 
-## Architecture
-
-```
-Server-rendered (zero client JS):
-├── Movie list — search, filter, pagination
-├── Movie detail — info, reviews, rating form
-├── Login / Register — form-based auth
-├── Profile — watched movies
-└── Admin — /api/admin
-
-Client-side (minimal JS for interactivity):
-├── Chat — WebSocket real-time messaging
-├── Navigation — auth-aware navbar
-└── Star rating — hover effects
-```
-
-## Pages
-
-| URL | Description |
-|---|---|
-| `/` | Movie list with search, genre filter, pagination |
-| `/movies/:id` | Movie detail + reviews + review form |
-| `/login` | Login (cookie session) |
-| `/register` | Register (triggers welcome email) |
-| `/profile` | Watched movies (protected) |
-| `/api/admin` | Admin dashboard |
-
-## Project Structure
-
-```
-examples/movie-app/
-├── server.ts          # SSR server (main entry point)
-├── server-api.ts      # API + React client version (alternative)
-├── models.ts          # ORM models
-├── seed.ts            # Seed script (4 users, 10 movies, 15 reviews)
-├── public/
-│   ├── styles.css     # Dark theme styles
-│   └── client.js      # Minimal client JS (chat, nav, star rating)
-├── client/            # React client (for API version only)
-└── README.md
-```
-
-## SSR vs API Version
-
-| Feature | SSR (`server.ts`) | API (`server-api.ts`) |
-|---|---|---|
-| Auth | Cookie sessions | JWT tokens |
-| Data loading | Server components | REST API + fetch() |
-| Client JS | ~6KB (chat only) | ~50KB+ (full React) |
-| Interactivity | Chat + star rating | Everything |
-| How to run | `npx tsx server.ts` | `npx tsx server-api.ts` + `npm run dev` |
-
 ## Learn More
 
 - [Reacto on GitHub](https://github.com/JonathanStefanov/reacto)
-- [@reacto-org/ssr](https://www.npmjs.com/package/@reacto-org/ssr)
 - [@reacto-org/core](https://www.npmjs.com/package/@reacto-org/core)
-- [@reacto-org/server](https://www.npmjs.com/package/@reacto-org/server)
+- [@reacto-org/ssr](https://www.npmjs.com/package/@reacto-org/ssr)
