@@ -304,9 +304,12 @@ app.post('/api/movies/:movieId/reviews', authMiddleware, async (req, res) => {
 
     // Broadcast new review via WebSocket
     if (ws) {
-      ws.broadcast('new-review', {
-        movieId,
-        review: review.toJSON(),
+      ws.broadcast('chat', {
+        type: 'new-review',
+        data: {
+          movieId,
+          review: review.toJSON(),
+        },
       });
     }
 
@@ -350,22 +353,27 @@ if (ws) {
         .limit(50)
         .all();
 
-      client.send('chat-history', {
-        messages: messages.reverse().map((m) => m.toJSON()),
+      ws.sendToClient(client, {
+        type: 'chat-history',
+        data: { messages: messages.reverse().map((m) => m.toJSON()) },
       });
+
+      // Subscribe to chat channel
+      ws.subscribe('chat', client.id);
     } catch (error) {
       console.error('Error loading chat history:', error);
     }
   });
 
   // Handle incoming chat messages
-  ws.on('chat-message', async (data, client) => {
+  ws.onMessage('chat-message', async (data, client) => {
     try {
-      const { content, channel = 'general' } = data;
+      const { content, channel = 'general' } = data as { content: string; channel?: string };
       const userId = client.userId;
 
       if (!userId) {
-        return client.send('error', { message: 'Not authenticated' });
+        ws.sendToClient(client, { type: 'error', data: { message: 'Not authenticated' } });
+        return;
       }
 
       const message = await ModelManager.create(ChatMessage, {
@@ -375,15 +383,18 @@ if (ws) {
       });
 
       // Load user info
-      const user = await ModelManager.objects(User).get({ id: userId });
+      const user = await ModelManager.objects(User).get({ id: userId as number });
 
-      // Broadcast to all clients
-      ws.broadcast('chat-message', {
-        ...message.toJSON(),
-        user: user.toJSON(),
+      // Broadcast to all clients subscribed to 'chat' channel
+      ws.broadcast('chat', {
+        type: 'chat-message',
+        data: {
+          ...message.toJSON(),
+          user: user.toJSON(),
+        },
       });
     } catch (error) {
-      client.send('error', { message: (error as Error).message });
+      ws.sendToClient(client, { type: 'error', data: { message: (error as Error).message } });
     }
   });
 }

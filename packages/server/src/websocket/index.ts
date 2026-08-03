@@ -63,6 +63,7 @@ export class ReactoWebSocketServer {
   private heartbeatTimer: ReturnType<typeof setInterval>;
   private clientIdCounter = 0;
   private options: WebSocketServerOptions;
+  private messageHandlers = new Map<string, (data: unknown, client: WsClient) => void>();
 
   constructor(httpServer: Server, options: WebSocketServerOptions = {}) {
     this.options = options;
@@ -161,6 +162,11 @@ export class ReactoWebSocketServer {
       authenticated,
     } as unknown as WsBroadcast);
 
+    // Call connection handler if registered
+    if (this.connectionHandler) {
+      this.connectionHandler(client);
+    }
+
     console.log(`[Reacto WS] Client connected: ${clientId} (user: ${userId ?? 'anonymous'})`);
   }
 
@@ -193,9 +199,27 @@ export class ReactoWebSocketServer {
         this.send(clientId, { type: 'pong' } as unknown as WsBroadcast);
         break;
 
-      default:
-        this.send(clientId, { type: 'error', data: `Unknown message type: ${msg.type}` });
+      default: {
+        // Check for custom message handlers
+        const handler = this.messageHandlers.get(msg.type);
+        if (handler) {
+          handler(msg.data ?? msg, client);
+        } else {
+          this.send(clientId, { type: 'error', data: `Unknown message type: ${msg.type}` });
+        }
+      }
     }
+  }
+
+  /**
+   * Register a custom message handler.
+   *
+   *   ws.onMessage('chat-message', (data, client) => {
+   *     ws.broadcast('chat', { type: 'custom', data: { ...data, user: client.userId } });
+   *   });
+   */
+  onMessage(type: string, handler: (data: unknown, client: WsClient) => void): void {
+    this.messageHandlers.set(type, handler);
   }
 
   /**
@@ -278,6 +302,37 @@ export class ReactoWebSocketServer {
       client.ws.send(JSON.stringify(data));
     }
   }
+
+  /**
+   * Send a message to a specific WsClient object.
+   */
+  sendToClient(client: WsClient, data: WsBroadcast | Record<string, unknown>): void {
+    if (client.ws.readyState === WebSocket.OPEN) {
+      client.ws.send(JSON.stringify(data));
+    }
+  }
+
+  /**
+   * Get all connected clients.
+   */
+  getClients(): WsClient[] {
+    return Array.from(this.clients.values());
+  }
+
+  /**
+   * Convenience: register an event handler.
+   * Supports 'connection' and custom message types.
+   */
+  on(event: string, handler: (...args: unknown[]) => void): void {
+    if (event === 'connection') {
+      // Store connection handler to be called on new connections
+      this.connectionHandler = handler as (client: WsClient) => void;
+    } else {
+      this.onMessage(event, handler as (data: unknown, client: WsClient) => void);
+    }
+  }
+
+  private connectionHandler: ((client: WsClient) => void) | null = null;
 
   /**
    * Remove a client and clean up their subscriptions.
