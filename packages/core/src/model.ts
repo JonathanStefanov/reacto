@@ -21,12 +21,14 @@ import type {
 } from './types.js';
 import { runSignal } from './signals/index.js';
 import { validateModel, ValidationError } from './validators/index.js';
+import { getCache, queryCacheKey } from './cache/index.js';
 
 // ─── QuerySet ─────────────────────────────────────────────────────────────────
 
 export class QuerySet<T extends Model> {
   private modelClass: ModelClass<T>;
   private options: QueryOptions = {};
+  private cacheTtl: number | null = null;
 
   constructor(modelClass: ModelClass<T>, options: QueryOptions = {}) {
     this.modelClass = modelClass;
@@ -78,6 +80,31 @@ export class QuerySet<T extends Model> {
       ...this.options,
       select: fields,
     });
+  }
+
+  /**
+   * Full-text search across multiple fields.
+   *
+   *   User.objects.search(['username', 'email'], 'john').all()
+   *   User.objects.search(['title', 'content'], 'react', { fullText: true }).all()
+   */
+  search(fields: string[], query: string, options?: { fullText?: boolean }): QuerySet<T> {
+    return new QuerySet<T>(this.modelClass, {
+      ...this.options,
+      search: { fields, query, fullText: options?.fullText ?? false },
+    });
+  }
+
+  /**
+   * Cache query results for the given TTL (in seconds).
+   *
+   *   const users = await User.objects.filter({ active: true }).cache(300).all();
+   *   // Results cached for 5 minutes, auto-invalidated on User save/delete
+   */
+  cache(ttlSeconds: number): QuerySet<T> {
+    const clone = new QuerySet<T>(this.modelClass, { ...this.options });
+    clone.cacheTtl = ttlSeconds;
+    return clone;
   }
 
   /**
@@ -165,6 +192,31 @@ export class QuerySet<T extends Model> {
   }
 
   private async execute(): Promise<T[]> {
+    // Check cache first
+    if (this.cacheTtl !== null) {
+      const cache = getCache();
+      const cacheKey = queryCacheKey(
+        this.modelClass._modelName,
+        'select',
+        { options: this.options }
+      );
+
+      const cached = await cache.get<T[]>(cacheKey);
+      if (cached !== null) {
+        return cached;
+      }
+
+      // Cache miss — execute query and cache result
+      const results = await this.executeQuery();
+      await cache.set(cacheKey, results, this.cacheTtl);
+      cache.trackKey(this.modelClass._modelName, cacheKey);
+      return results;
+    }
+
+    return this.executeQuery();
+  }
+
+  private async executeQuery(): Promise<T[]> {
     const sql = this.buildSelectSql();
     const result = await query(sql, this.buildParams());
     const instances = result.rows.map((row) => this.hydrate(row));
@@ -186,9 +238,17 @@ export class QuerySet<T extends Model> {
       : '*';
     let sql = `SELECT ${fields} FROM "${table}"`;
 
+    const whereClauses: string[] = [];
     if (this.options.where?.length) {
-      sql += ` WHERE ${this.buildWhereSql()}`;
+      whereClauses.push(this.buildWhereSql());
     }
+    if (this.options.search) {
+      whereClauses.push(this.buildSearchSql());
+    }
+    if (whereClauses.length > 0) {
+      sql += ` WHERE ${whereClauses.join(' AND ')}`;
+    }
+
     if (this.options.orderBy?.length) {
       const orders = this.options.orderBy
         .map((o) => `"${o.field}" ${o.direction}`)
@@ -208,8 +268,15 @@ export class QuerySet<T extends Model> {
   private buildCountSql(): string {
     const table = this.modelClass.tableName;
     let sql = `SELECT COUNT(*) as count FROM "${table}"`;
+    const whereClauses: string[] = [];
     if (this.options.where?.length) {
-      sql += ` WHERE ${this.buildWhereSql()}`;
+      whereClauses.push(this.buildWhereSql());
+    }
+    if (this.options.search) {
+      whereClauses.push(this.buildSearchSql());
+    }
+    if (whereClauses.length > 0) {
+      sql += ` WHERE ${whereClauses.join(' AND ')}`;
     }
     return sql;
   }
@@ -292,9 +359,40 @@ export class QuerySet<T extends Model> {
   }
 
   private buildParams(): unknown[] {
-    return (this.options.where ?? [])
-      .filter((w) => w.operator !== 'isNull' && w.operator !== 'isNotNull')
-      .map((w) => w.value);
+    const params: unknown[] = [];
+
+    // Where clause params
+    for (const w of this.options.where ?? []) {
+      if (w.operator !== 'isNull' && w.operator !== 'isNotNull') {
+        params.push(w.value);
+      }
+    }
+
+    // Search clause param
+    if (this.options.search) {
+      params.push('%' + this.options.search.query + '%');
+    }
+
+    return params;
+  }
+
+  private buildSearchSql(): string {
+    const search = this.options.search!;
+    const paramIdx = (this.options.where?.length ?? 0) + 1;
+
+    if (search.fullText) {
+      // PostgreSQL full-text search using to_tsvector / plainto_tsquery
+      const vectorExpr = search.fields
+        .map((f) => "coalesce(\"" + f + "\" , '')")
+        .join(" || ' ' || ");
+      return "to_tsvector('english', " + vectorExpr + ") @@ plainto_tsquery('english', $" + paramIdx + ")";
+    }
+
+    // ILIKE-based search across multiple fields
+    const conditions = search.fields
+      .map((f) => "\"" + f + "\" ILIKE $" + paramIdx)
+      .join(' OR ');
+    return '(' + conditions + ')';
   }
 
   private buildWhere(conditions: Record<string, unknown>): WhereClause[] {
@@ -524,6 +622,9 @@ export class ModelManager {
     // Run postSave signal
     await runSignal(modelClass, 'postSave', instance as unknown as T);
 
+    // Invalidate cache for this model
+    await getCache().invalidateModel(modelClass._modelName);
+
     return instance as unknown as T;
   }
 
@@ -580,6 +681,9 @@ export class ModelManager {
       // Run postSave signal
       await runSignal(modelClass, 'postSave', instance);
 
+      // Invalidate cache for this model
+      await getCache().invalidateModel(modelClass._modelName);
+
       return instance;
     } else {
       // INSERT
@@ -603,6 +707,9 @@ export class ModelManager {
 
     // Run postDelete signal
     await runSignal(modelClass, 'postDelete', instance);
+
+    // Invalidate cache for this model
+    await getCache().invalidateModel(modelClass._modelName);
   }
 
   static async refresh<T extends Model>(instance: T): Promise<T> {

@@ -146,6 +146,14 @@ export interface QueryOptions {
   offset?: number;
   select?: string[];
   relations?: string[];
+  search?: SearchClause;
+}
+
+export interface SearchClause {
+  fields: string[];
+  query: string;
+  /** Use PostgreSQL full-text search. Default: false (uses ILIKE) */
+  fullText?: boolean;
 }
 
 export interface AggregateOptions {
