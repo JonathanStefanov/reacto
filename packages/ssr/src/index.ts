@@ -424,3 +424,14 @@ function notFoundPage(): string {
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// ─── Client Components (for hydration) ────────────────────────────────────────
+
+export {
+  WSProvider,
+  useWS,
+  ChatPanel,
+  LiveFeed,
+  RealTime,
+  ConnectionStatus,
+} from './client.js';
