@@ -13,6 +13,7 @@ import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { requestLogger } from './middleware/logger.js';
 import { ReactoWebSocketServer } from './websocket/index.js';
 import type { WebSocketServerOptions } from './websocket/index.js';
+import { createAdminRoutes, generateAdminHtml } from './admin/index.js';
 
 export interface ServerOptions {
   cors?: cors.CorsOptions;
@@ -23,6 +24,8 @@ export interface ServerOptions {
   basePath?: string;
   /** Enable WebSocket server */
   websocket?: boolean | WebSocketServerOptions;
+  /** Enable admin dashboard at /admin (default: true) */
+  admin?: boolean;
 }
 
 export interface ServerResult {
@@ -60,6 +63,15 @@ export function createServer(options: ServerOptions = {}): ServerResult {
   app.get(`${basePath}/health`, (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // Admin dashboard
+  if (options.admin !== false) {
+    app.use(`${basePath}/_admin`, createAdminRoutes());
+    app.get('/admin', (_req, res) => {
+      res.type('html').send(generateAdminHtml(basePath));
+    });
+    console.log('[Reacto] Admin dashboard: /admin');
+  }
 
   const models = getAllModels();
   for (const [name, modelClass] of models) {
@@ -106,3 +118,4 @@ export type { WsMessage, WsBroadcast, WsClient, WebSocketServerOptions } from '.
 export { uploadMiddleware, uploadAndStore, validateFile } from './middleware/upload.js';
 export type { UploadOptions, UploadedFile } from './middleware/upload.js';
 export { createFileRoutes } from './routes/files.js';
+export { createAdminRoutes, generateAdminHtml } from './admin/index.js';
