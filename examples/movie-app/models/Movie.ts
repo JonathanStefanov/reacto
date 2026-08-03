@@ -29,7 +29,6 @@ export class Movie {
 
   @Signal('postSave')
   async recalcRating() {
-    const { ModelManager } = await import('@reacto-org/core');
     const reviews = await ModelManager.objects(Review).filter({ movieId: this.id }).all();
     if (reviews.length > 0) {
       const sum = reviews.reduce((a, r) => a + (r.rating as number), 0);
@@ -38,3 +37,6 @@ export class Movie {
     }
   }
 }
+
+// Need this import for the signal
+import { ModelManager } from '@reacto-org/core';

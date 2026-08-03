@@ -1,26 +1,15 @@
-/**
- * Profile Page — Protected, shows watched movies
- */
 import React from 'react';
-import { ModelManager } from '@reacto-org/core';
-import { serverComponent } from '@reacto-org/ssr';
+import { serverComponent, ModelManager } from '@reacto-org/ssr';
 import { Review } from '../models/index.js';
-import { Layout } from '../templates/Layout.js';
 
 const GENRE_EMOJI: Record<string, string> = {
   Action: '💥', Comedy: '😂', Drama: '🎭', Horror: '👻',
   'Sci-Fi': '🚀', Romance: '💕', Thriller: '😱', Documentary: '📹',
 };
 
-export const ProfilePage = serverComponent(async (ctx) => {
+export default serverComponent(async (ctx) => {
   if (!ctx.user) {
-    return (
-      <Layout title="Profile — CineLog" user={null}>
-        <div style={{ padding: 40, textAlign: 'center' }}>
-          <p>Please <a href="/login" style={{ color: '#6c5ce7' }}>login</a> to view your profile.</p>
-        </div>
-      </Layout>
-    );
+    return <div style={{ padding: 40, textAlign: 'center' }}><p><a href="/loginpage" style={{ color: '#6c5ce7' }}>Login</a> to view your profile.</p></div>;
   }
 
   const reviews = await ModelManager.objects(Review)
@@ -30,61 +19,47 @@ export const ProfilePage = serverComponent(async (ctx) => {
     .all();
 
   return (
-    <Layout title={`${ctx.user.username}'s Profile — CineLog`} user={ctx.user}>
+    <div>
+      <nav style={nav}>
+        <h1 style={{ fontSize: 20, color: '#fff', margin: 0 }}>🎬 <span style={{ color: '#6c5ce7' }}>Cine</span>Log</h1>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <a href="/" style={navBtn}>🎬 Movies</a>
+          <span style={{ color: '#fff', fontSize: 14 }}>👤 {ctx.user.username}</span>
+          <a href="/auth/logout" style={navBtn}>Logout</a>
+        </div>
+      </nav>
+
       <div style={{ maxWidth: 900, margin: '0 auto', padding: 24 }}>
         <div style={{ background: '#1a1a2e', borderRadius: 12, border: '1px solid #2a2a4a' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #2a2a4a' }}>
-            <h2 style={{ fontSize: 16, color: '#fff', margin: 0 }}>
-              📋 {ctx.user.username}'s Watched Movies
-            </h2>
+            <h2 style={{ fontSize: 16, color: '#fff', margin: 0 }}>📋 {ctx.user.username}'s Watched Movies</h2>
           </div>
           <div style={{ padding: 20 }}>
             {reviews.length === 0 ? (
               <p style={{ color: '#888', textAlign: 'center', padding: 20 }}>
-                No movies watched yet. <a href="/" style={{ color: '#6c5ce7' }}>Browse movies</a> to get started!
+                No movies yet. <a href="/" style={{ color: '#6c5ce7' }}>Browse movies</a>
               </p>
-            ) : reviews.map(review => (
-              <div key={review.id} style={{
-                display: 'flex',
-                gap: 12,
-                padding: '12px 0',
-                borderBottom: '1px solid #2a2a4a',
-                alignItems: 'center',
-              }}>
-                <div style={{
-                  width: 50,
-                  height: 70,
-                  background: '#16213e',
-                  borderRadius: 6,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 20,
-                  flexShrink: 0,
-                }}>
-                  {GENRE_EMOJI[review.movie?.genre || ''] || '🎬'}
+            ) : reviews.map(r => (
+              <div key={r.id} style={{ display: 'flex', gap: 12, padding: '12px 0', borderBottom: '1px solid #2a2a4a', alignItems: 'center' }}>
+                <div style={{ width: 50, height: 70, background: '#16213e', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                  {GENRE_EMOJI[r.movie?.genre || ''] || '🎬'}
                 </div>
                 <div style={{ flex: 1 }}>
                   <h3 style={{ fontSize: 14, color: '#fff', margin: 0 }}>
-                    <a href={`/movies/${review.movieId}`} style={{ color: '#fff', textDecoration: 'none' }}>
-                      {review.movie?.title || 'Unknown'}
-                    </a>
+                    <a href={`/moviedetailpage?id=${r.movieId}`} style={{ color: '#fff', textDecoration: 'none' }}>{r.movie?.title || 'Unknown'}</a>
                   </h3>
-                  <div style={{ fontSize: 12, color: '#888' }}>
-                    Watched {new Date(review.watchedAt).toLocaleDateString()}
-                  </div>
-                  {review.comment && (
-                    <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{review.comment}</div>
-                  )}
+                  <div style={{ fontSize: 12, color: '#888' }}>Watched {new Date(r.watchedAt).toLocaleDateString()}</div>
+                  {r.comment && <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{r.comment}</div>}
                 </div>
-                <div style={{ color: '#f1c40f', fontSize: 16 }}>
-                  {'⭐'.repeat(review.rating)}
-                </div>
+                <div style={{ color: '#f1c40f', fontSize: 16 }}>{'⭐'.repeat(r.rating)}</div>
               </div>
             ))}
           </div>
         </div>
       </div>
-    </Layout>
+    </div>
   );
 }, 'ProfilePage');
+
+const nav: React.CSSProperties = { background: '#1a1a2e', borderBottom: '1px solid #2a2a4a', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
+const navBtn: React.CSSProperties = { background: 'none', border: '1px solid #2a2a4a', color: '#e0e0e0', padding: '8px 16px', borderRadius: 6, fontSize: 13, textDecoration: 'none' };

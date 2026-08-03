@@ -1,14 +1,10 @@
 # 🎬 CineLog — Movie Tracker
 
-A **Django-style** movie app built with Reacto SSR.
-
-**Models and auth used DIRECTLY in server components** — no API layer.
+**Django-style Reacto app.** Models, views, routes, tasks are auto-discovered.
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/JonathanStefanov/reacto.git
-cd reacto && npm install
 createdb movieapp
 npx tsx examples/movie-app/seed.ts
 npx tsx examples/movie-app/server.ts
@@ -17,61 +13,83 @@ npx tsx examples/movie-app/server.ts
 
 **Test:** `cine@example.com` / `password123`
 
-## Project Structure
+## That's It
+
+```tsx
+// server.ts — the entire file
+import { createSSRApp } from '@reacto-org/ssr';
+createSSRApp({ database: { database: 'movieapp' } });
+```
+
+**No manual imports. No registration. Just create files:**
 
 ```
 movie-app/
-├── server.ts          # Entry point (like manage.py)
+├── server.ts              ← That's the whole file
 │
-├── models/            # Database models (like models.py)
-│   ├── User.ts        #   Password hashing via signal
-│   ├── Movie.ts       #   Auto-recalc rating via signal
-│   ├── Review.ts      #   Rating validation
-│   └── ChatMessage.ts
+├── models/                ← Auto-discovered
+│   ├── User.ts
+│   ├── Movie.ts
+│   └── Review.ts
 │
-├── views/             # Server components (like views.py)
-│   ├── HomePage.tsx   #   Movie list + search + filter
-│   ├── MovieDetailPage.tsx
-│   ├── LoginPage.tsx
-│   ├── RegisterPage.tsx
-│   └── ProfilePage.tsx
+├── views/                 ← Auto-mounted as pages
+│   ├── HomePage.tsx       ← GET /
+│   ├── MovieDetailPage.tsx ← GET /moviedetailpage
+│   ├── LoginPage.tsx      ← GET /loginpage
+│   └── ProfilePage.tsx    ← GET /profilepage
 │
-├── routes/            # Form handlers (like urls.py)
-│   └── index.ts       #   Auth, reviews, chat API
+├── routes/                ← Auto-mounted as handlers
+│   └── index.ts           ← POST /auth/login, etc.
 │
-├── tasks/             # Background jobs (like tasks.py)
-│   └── email.ts       #   Welcome email
+├── tasks/                 ← Auto-discovered
+│   └── email.ts           ← Background email job
 │
-├── templates/         # Layout (like templates/)
-│   └── Layout.tsx     #   Base HTML layout
-│
-└── public/            # Static files (like static/)
-    ├── styles.css
-    └── client.js      #   Chat (WebSocket)
+└── public/                ← Static files
+    └── styles.css
 ```
 
-## How It Works
+## Django Comparison
+
+| Django | Reacto | Convention |
+|---|---|---|
+| `models.py` | `models/*.ts` | Auto-imported, decorators register |
+| `views.py` | `views/*.tsx` | `export default serverComponent(...)` |
+| `urls.py` | `routes/*.ts` | `export const x = route(...)` |
+| `tasks.py` | `tasks/*.ts` | `export const x = task(...)` |
+| `manage.py` | `server.ts` | `createSSRApp()` |
+| `settings.py` | Config object | Passed to `createSSRApp()` |
+
+## How Views Work
 
 ```tsx
-// views/HomePage.tsx — runs on server, uses ORM directly
-export const HomePage = serverComponent(async (ctx) => {
-  const movies = await ModelManager.objects(Movie)
-    .search(['title', 'director'], ctx.query.search)
-    .cache(60)
-    .all();
+// views/HomePage.tsx — export default = auto-mounted at /
+import { serverComponent, ModelManager } from '@reacto-org/ssr';
+import { Movie } from '../models/index.js';
 
-  return (
-    <Layout user={ctx.user}>
-      {movies.map(m => <MovieCard key={m.id} movie={m} />)}
-    </Layout>
-  );
+export default serverComponent(async (ctx) => {
+  const movies = await ModelManager.objects(Movie).all();
+  return <div>{movies.map(m => <p>{m.title}</p>)}</div>;
 });
 ```
 
-No `fetch()`. No API calls. No token dance. Just use the ORM.
+**Naming convention → URL path:**
+- `HomePage.tsx` → `/`
+- `MovieDetailPage.tsx` → `/moviedetailpage`
+- `LoginPage.tsx` → `/loginpage`
+- `ProfilePage.tsx` → `/profilepage`
+
+## How Routes Work
+
+```tsx
+// routes/auth.ts — export named = auto-mounted
+import { route } from '@reacto-org/ssr';
+
+export const login = route('post', '/auth/login', async (req, res) => {
+  // handle login
+});
+```
 
 ## Learn More
 
 - [Reacto](https://github.com/JonathanStefanov/reacto)
-- [@reacto-org/core](https://www.npmjs.com/package/@reacto-org/core)
 - [@reacto-org/ssr](https://www.npmjs.com/package/@reacto-org/ssr)
