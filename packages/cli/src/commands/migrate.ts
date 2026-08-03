@@ -9,7 +9,7 @@ import {
   fakeMigrations,
   showMigrationStatus,
   closePool,
-} from '@reacto/core';
+} from '@reacto-org/core';
 
 export async function migrateCommand(options: { fake?: boolean; status?: boolean }): Promise<void> {
   console.log(chalk.blue.bold('\n📦 Reacto Migrations\n'));

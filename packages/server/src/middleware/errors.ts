@@ -1,5 +1,5 @@
 /**
- * @reacto/server — Error handling middleware
+ * @reacto-org/server — Error handling middleware
  */
 import { Request, Response, NextFunction } from 'express';
 

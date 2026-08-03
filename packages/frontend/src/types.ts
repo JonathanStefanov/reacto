@@ -1,5 +1,5 @@
 /**
- * @reacto/frontend — Shared types
+ * @reacto-org/frontend — Shared types
  */
 
 export interface ModelLike {

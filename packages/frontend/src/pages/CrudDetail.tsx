@@ -1,5 +1,5 @@
 /**
- * @reacto/frontend — Generic CRUD detail view
+ * @reacto-org/frontend — Generic CRUD detail view
  *
  * Displays a single record for any model.
  */

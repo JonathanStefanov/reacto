@@ -1,5 +1,5 @@
 /**
- * @reacto/frontend — Auto-generated React hooks, CRUD pages, and admin panel
+ * @reacto-org/frontend — Auto-generated React hooks, CRUD pages, and admin panel
  */
 
 // ─── Types ────────────────────────────────────────────────────────────────────

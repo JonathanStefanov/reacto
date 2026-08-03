@@ -7,7 +7,7 @@ import {
   generateMigrations,
   operationToSql,
   closePool,
-} from '@reacto/core';
+} from '@reacto-org/core';
 
 export async function makemigrationsCommand(options: { dryRun?: boolean }): Promise<void> {
   console.log(chalk.blue.bold('\n📝 Reacto Makemigrations\n'));

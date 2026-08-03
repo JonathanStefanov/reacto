@@ -1,11 +1,11 @@
 /**
- * @reacto/frontend — WebSocket subscription hook for React
+ * @reacto-org/frontend — WebSocket subscription hook for React
  *
  * Provides real-time model updates via WebSocket.
  *
  * @example
  * ```tsx
- * import { useSubscription } from '@reacto/frontend';
+ * import { useSubscription } from '@reacto-org/frontend';
  *
  * function PostList() {
  *   const { data, latest, connected } = useSubscription('posts');

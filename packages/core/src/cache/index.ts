@@ -19,7 +19,7 @@
  *     .all();
  *
  *   // Manual cache
- *   import { cache } from '@reacto/core';
+ *   import { cache } from '@reacto-org/core';
  *   await cache.set('my-key', data, 60);
  *   const data = await cache.get('my-key');
  */

@@ -2,7 +2,7 @@
  * Reacto Server — File Upload Routes
  */
 import { Router, Request, Response, NextFunction } from 'express';
-import { getDefaultStorage, LocalStorage } from '@reacto/core';
+import { getDefaultStorage, LocalStorage } from '@reacto-org/core';
 import { uploadMiddleware, validateFile } from '../middleware/upload.js';
 import type { UploadedFile } from '../middleware/upload.js';
 

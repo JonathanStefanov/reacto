@@ -1,5 +1,5 @@
 /**
- * @reacto/server — HTTP server with auto-generated API routes + WebSocket
+ * @reacto-org/server — HTTP server with auto-generated API routes + WebSocket
  */
 import express from 'express';
 import cors from 'cors';
@@ -7,14 +7,14 @@ import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { createServer as createHttpServer } from 'http';
-import { getAllModels, autoConfigure } from '@reacto/core';
+import { getAllModels, autoConfigure } from '@reacto-org/core';
 import { generateCrudRoutes } from './routes/crud.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { requestLogger } from './middleware/logger.js';
 import { ReactoWebSocketServer } from './websocket/index.js';
 import type { WebSocketServerOptions } from './websocket/index.js';
 import { createAdminRoutes, generateAdminHtml } from './admin/index.js';
-import { createTaskAdminRoutes } from '@reacto/core';
+import { createTaskAdminRoutes } from '@reacto-org/core';
 
 export interface ServerOptions {
   cors?: cors.CorsOptions;

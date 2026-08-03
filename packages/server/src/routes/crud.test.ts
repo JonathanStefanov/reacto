@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { generateCrudRoutes } from './crud.js';
-import type { ModelClass } from '@reacto/core';
-import { registerModel, clearRegistry } from '@reacto/core';
+import type { ModelClass } from '@reacto-org/core';
+import { registerModel, clearRegistry } from '@reacto-org/core';
 
 function createMockModelClass(): ModelClass {
   return {

@@ -1,5 +1,5 @@
 /**
- * @reacto/frontend — Generic CRUD form component
+ * @reacto-org/frontend — Generic CRUD form component
  *
  * Auto-generates form fields from model definition.
  * Handles both create (POST) and update (PUT) operations.

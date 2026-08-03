@@ -1,5 +1,5 @@
 {
-  "name": "@reacto/frontend",
+  "name": "@reacto-org/frontend",
   "version": "0.1.0",
   "description": "Reacto Frontend — Auto-generated React hooks, CRUD pages, and admin panel",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@reacto/core": "*"
+    "@reacto-org/core": "*"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

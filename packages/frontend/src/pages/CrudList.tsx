@@ -1,5 +1,5 @@
 /**
- * @reacto/frontend — Generic CRUD list component
+ * @reacto-org/frontend — Generic CRUD list component
  *
  * Renders a table for any model with auto-discovered fields,
  * pagination, loading, and error states.

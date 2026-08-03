@@ -1,5 +1,5 @@
 {
-  "name": "@reacto/core",
+  "name": "@reacto-org/core",
   "version": "0.1.0",
   "description": "Core ORM — Django-style models, fields, migrations, and query builder for Reacto",
   "main": "./dist/index.js",

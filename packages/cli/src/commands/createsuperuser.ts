@@ -2,7 +2,7 @@
  * Reacto CLI — createsuperuser command
  */
 import chalk from 'chalk';
-import { autoConfigure, closePool, ModelManager } from '@reacto/core';
+import { autoConfigure, closePool, ModelManager } from '@reacto-org/core';
 import * as readline from 'readline';
 
 export async function createsuperuserCommand(): Promise<void> {
@@ -32,7 +32,7 @@ export async function createsuperuserCommand(): Promise<void> {
     }
 
     // Look for User model
-    const { getModel } = await import('@reacto/core');
+    const { getModel } = await import('@reacto-org/core');
     const UserModel = getModel('User');
 
     if (!UserModel) {

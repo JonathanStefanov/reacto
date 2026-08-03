@@ -4,9 +4,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'reflect-metadata';
 import { createAdminRoutes, generateAdminHtml } from './index.js';
-import { clearRegistry, ModelDecor } from '@reacto/core';
-import { Field } from '@reacto/core';
-import { Model } from '@reacto/core';
+import { clearRegistry, ModelDecor } from '@reacto-org/core';
+import { Field } from '@reacto-org/core';
+import { Model } from '@reacto-org/core';
 import express from 'express';
 import request from 'supertest';
 

@@ -1,5 +1,5 @@
 /**
- * @reacto/frontend — Admin layout wrapper
+ * @reacto-org/frontend — Admin layout wrapper
  *
  * Provides a sidebar + content area layout for the admin panel.
  */

@@ -26,15 +26,15 @@ jobs:
       - run: npm run build
       - run: npm test
 
-      - name: Publish @reacto/core
+      - name: Publish @reacto-org/core
         run: npm publish --access public --provenance
         working-directory: packages/core
 
-      - name: Publish @reacto/server
+      - name: Publish @reacto-org/server
         run: npm publish --access public --provenance
         working-directory: packages/server
 
-      - name: Publish @reacto/cli
+      - name: Publish @reacto-org/cli
         run: npm publish --access public --provenance
         working-directory: packages/cli
 

@@ -34,7 +34,7 @@ async function generateModel(name: string, fieldsStr?: string): Promise<void> {
 
   const fields = parseFields(fieldsStr);
 
-  const content = `import { Model, Field } from '@reacto/core';
+  const content = `import { Model, Field } from '@reacto-org/core';
 
 export class ${name} extends Model {
 ${fields.map((f) => `  @Field({ type: '${f.type}'${f.options ? ', ' + f.options : ''} })
@@ -58,7 +58,7 @@ async function generateApi(name: string): Promise<void> {
   fs.mkdirSync(routesDir, { recursive: true });
 
   const content = `import { Router } from 'express';
-import { ModelManager } from '@reacto/core';
+import { ModelManager } from '@reacto-org/core';
 import { ${name} } from '../models/${name.toLowerCase()}.js';
 
 const router = Router();

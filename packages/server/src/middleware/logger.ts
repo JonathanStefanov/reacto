@@ -1,5 +1,5 @@
 /**
- * @reacto/server — Request logger middleware
+ * @reacto-org/server — Request logger middleware
  */
 import { Request, Response, NextFunction } from 'express';
 

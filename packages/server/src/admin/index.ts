@@ -1,15 +1,15 @@
 /**
- * @reacto/server — Admin Dashboard
+ * @reacto-org/server — Admin Dashboard
  *
  * Auto-generates an admin dashboard at /admin with:
  *   - GET /api/_admin/meta — Model metadata (fields, types, relations)
  *   - GET /admin — Admin UI (SPA with auto-generated CRUD)
  *
- * The admin UI uses React components from @reacto/frontend/AdminPanel.
+ * The admin UI uses React components from @reacto-org/frontend/AdminPanel.
  */
 import { Router, Request, Response } from 'express';
-import { getAllModels } from '@reacto/core';
-import type { ModelClass, FieldDefinition, RelationDefinition } from '@reacto/core';
+import { getAllModels } from '@reacto-org/core';
+import type { ModelClass, FieldDefinition, RelationDefinition } from '@reacto-org/core';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

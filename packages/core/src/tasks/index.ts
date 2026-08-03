@@ -13,7 +13,7 @@
  *   - Task monitoring API
  *
  * @example
- *   import { task, getTaskQueue } from '@reacto/core';
+ *   import { task, getTaskQueue } from '@reacto-org/core';
  *
  *   @task({ queue: 'emails', retries: 3 })
  *   async function sendWelcomeEmail(userId: number) {

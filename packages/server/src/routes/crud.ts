@@ -1,5 +1,5 @@
 /**
- * @reacto/server — Auto-generated CRUD routes for models
+ * @reacto-org/server — Auto-generated CRUD routes for models
  *
  * Generates REST endpoints:
  *   GET    /           → List all (with pagination, filtering, ordering)
@@ -13,8 +13,8 @@
  *   GET    /:id/<relation> → Nested relation routes
  */
 import { Router, Request, Response, NextFunction } from 'express';
-import { ModelManager, getModel } from '@reacto/core';
-import type { ModelClass } from '@reacto/core';
+import { ModelManager, getModel } from '@reacto-org/core';
+import type { ModelClass } from '@reacto-org/core';
 
 /**
  * Generate CRUD routes for a model.

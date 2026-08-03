@@ -1,5 +1,5 @@
 /**
- * @reacto/frontend — Admin panel
+ * @reacto-org/frontend — Admin panel
  *
  * Composes sidebar navigation, list/detail/create/edit views
  * for all registered models. Uses a simple hash-based router.

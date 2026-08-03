@@ -4,7 +4,7 @@
  * Handles multipart/form-data file uploads using busboy (no native deps).
  */
 import type { Request, Response, NextFunction } from 'express';
-import type { StoredFile } from '@reacto/core';
+import type { StoredFile } from '@reacto-org/core';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -129,7 +129,7 @@ export function uploadAndStore(options: UploadOptions & { subDir?: string } = {}
     }
 
     try {
-      const { getDefaultStorage } = await import('@reacto/core');
+      const { getDefaultStorage } = await import('@reacto-org/core');
       const storage = getDefaultStorage();
 
       const busboy = await import('busboy');

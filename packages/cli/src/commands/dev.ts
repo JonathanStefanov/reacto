@@ -27,7 +27,7 @@ export async function devCommand(options: { port: string; host: string }): Promi
       console.log(chalk.yellow('  No app.ts found. Starting with auto-discovery...'));
 
       // Auto-discover and start
-      const { startServer } = await import('@reacto/server');
+      const { startServer } = await import('@reacto-org/server');
       await startServer(port, {});
     }
   } catch (error) {

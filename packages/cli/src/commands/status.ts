@@ -2,7 +2,7 @@
  * Reacto CLI — status command (project overview)
  */
 import chalk from 'chalk';
-import { autoConfigure, getAllModels, generateMigrations, getAppliedMigrations, closePool } from '@reacto/core';
+import { autoConfigure, getAllModels, generateMigrations, getAppliedMigrations, closePool } from '@reacto-org/core';
 
 export async function statusCommand(): Promise<void> {
   console.log(chalk.blue.bold('\n📊 Reacto Project Status\n'));

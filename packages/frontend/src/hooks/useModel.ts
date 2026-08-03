@@ -1,5 +1,5 @@
 /**
- * @reacto/frontend — Auto-generated React hooks for model CRUD operations
+ * @reacto-org/frontend — Auto-generated React hooks for model CRUD operations
  *
  * These hooks provide typed data-fetching for any Reacto model class.
  * They use fetch() against /api/{tableName} endpoints.

@@ -1,5 +1,5 @@
 /**
- * @reacto/core — The heart of Reacto
+ * @reacto-org/core — The heart of Reacto
  *
  * Django-style ORM for TypeScript/React applications.
  */

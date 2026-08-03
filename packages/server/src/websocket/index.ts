@@ -1,5 +1,5 @@
 /**
- * @reacto/server — WebSocket real-time subscriptions
+ * @reacto-org/server — WebSocket real-time subscriptions
  *
  * Provides Django Channels-style real-time updates:
  *   - Subscribe to model changes
