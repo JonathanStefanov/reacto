@@ -392,9 +392,13 @@ if (ws) {
 
 app.use('/uploads', express.static('uploads'));
 
-// Serve the client
-app.get('/', (_req, res) => {
-  res.sendFile(new URL('./client/index.html', import.meta.url).pathname);
+// Serve React client (production build)
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+app.use(express.static(join(__dirname, 'client/dist')));
+app.get('*', (_req, res) => {
+  res.sendFile(join(__dirname, 'client/dist/index.html'));
 });
 
 // ─── Start Server ────────────────────────────────────────────────────────────
