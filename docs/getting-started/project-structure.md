@@ -6,8 +6,6 @@ Reacto follows Django's project structure convention.
 
 ```
 my-app/
-├── server.ts              # Entry point (like manage.py)
-│
 ├── models/                # Database models (like models.py)
 │   ├── index.ts           # Barrel export
 │   ├── User.ts
