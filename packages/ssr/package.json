@@ -13,18 +13,21 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@reacto-org/core": "*",
-    "express": "^5.0.0",
+    "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
+    "express": "^5.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
+    "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.0",
+    "@types/express": "^5.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.5.0"
