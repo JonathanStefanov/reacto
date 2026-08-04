@@ -32,8 +32,8 @@ Reacto follows Django's philosophy:
 | `views.py` | `views/*.tsx` with `serverComponent()` |
 | `urls.py` | `routes/*.ts` with `route()` |
 | `tasks.py` | `tasks/*.ts` with `task()` |
-| `manage.py` | `server.ts` with `createSSRApp()` |
-| `settings.py` | Config object |
+| `manage.py` | `reacto runserver` (CLI) |
+| `settings.py` | Env vars (`DATABASE_URL`, `PORT`, `SECRET`) |
 | Django Admin | `/admin` auto-generated |
 | Django ORM | `ModelManager.objects(Model)` |
 | Django Signals | `@Signal('preSave')` |
