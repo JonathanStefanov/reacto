@@ -5,6 +5,7 @@
  *
  * Usage:
  *   reacto dev              Start dev server
+ *   reacto runserver        Start SSR server (zero-config)
  *   reacto migrate          Apply pending migrations
  *   reacto makemigrations   Generate migration files
  *   reacto createsuperuser  Create an admin user
@@ -19,6 +20,7 @@ import { makemigrationsCommand } from './commands/makemigrations.js';
 import { createsuperuserCommand } from './commands/createsuperuser.js';
 import { generateCommand } from './commands/generate.js';
 import { statusCommand } from './commands/status.js';
+import { runserverCommand } from './commands/runserver.js';
 
 const program = new Command();
 
@@ -66,6 +68,17 @@ program
   .command('status')
   .description('Show project status (models, migrations, database)')
   .action(statusCommand);
+
+program
+  .command('runserver')
+  .description('Start the SSR server (Django-style, zero-config)')
+  .option('-p, --port <port>', 'Port to listen on', '3000')
+  .option('--host <host>', 'Host to bind to', 'localhost')
+  .option('--streaming', 'Enable streaming SSR (renderToPipeableStream)')
+  .option('--no-cache', 'Disable response cache')
+  .option('--no-compress', 'Disable gzip compression')
+  .option('--secret <secret>', 'Session secret (or set SECRET env var)')
+  .action(runserverCommand);
 
 // ─── Parse ────────────────────────────────────────────────────────────────────
 
