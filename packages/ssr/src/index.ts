@@ -21,8 +21,9 @@
 import express, { type Express, type Request, type Response } from 'express';
 import { createServer, type Server } from 'http';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import React from 'react';
-import { renderToString } from 'react-dom/server';
+import { renderToString, renderToPipeableStream } from 'react-dom/server';
 import { createHash, randomBytes } from 'crypto';
 import { readdir } from 'fs/promises';
 import { join, resolve } from 'path';
@@ -67,6 +68,8 @@ export interface SSRConfig {
   secret?: string;
   /** Session max age in seconds (default: 7 days) */
   maxAge?: number;
+  /** Max concurrent sessions (default: 50000). Oldest expired sessions evicted first. */
+  maxSessions?: number;
   /** Database config (default: env vars) */
   database?: {
     host?: string;
@@ -85,17 +88,93 @@ export interface SSRConfig {
   root?: string;
   /** Layout component */
   layout?: React.FC<{ children: React.ReactNode; title?: string; user: any }>;
+  /** Enable streaming SSR via renderToPipeableStream (default: false) */
+  streaming?: boolean;
+  /** SSR response cache TTL in seconds (default: 60, 0 = disabled) */
+  cacheTtl?: number;
+  /** SSR response cache max entries (default: 1000) */
+  cacheMaxEntries?: number;
+  /** Enable compression (default: true) */
+  compress?: boolean;
+}
+
+// ─── Response Cache ──────────────────────────────────────────────────────────
+
+interface CacheEntry {
+  html: string;
+  etag: string;
+  createdAt: number;
+}
+
+class SSRResponseCache {
+  private store = new Map<string, CacheEntry>();
+  private ttl: number;
+  private maxEntries: number;
+
+  constructor(ttl = 60, maxEntries = 1000) {
+    this.ttl = ttl * 1000;
+    this.maxEntries = maxEntries;
+  }
+
+  get(key: string): CacheEntry | null {
+    const entry = this.store.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.createdAt > this.ttl) {
+      this.store.delete(key);
+      return null;
+    }
+    return entry;
+  }
+
+  set(key: string, html: string): CacheEntry {
+    // Evict oldest if at capacity
+    if (this.store.size >= this.maxEntries) {
+      const oldest = this.store.keys().next().value;
+      if (oldest) this.store.delete(oldest);
+    }
+
+    const etag = createHash('md5').update(html).digest('hex');
+    const entry: CacheEntry = { html, etag, createdAt: Date.now() };
+    this.store.set(key, entry);
+    return entry;
+  }
+
+  invalidate(key: string) {
+    this.store.delete(key);
+  }
+
+  clear() {
+    this.store.clear();
+  }
+
+  get size() {
+    return this.store.size;
+  }
 }
 
 // ─── Session Store ────────────────────────────────────────────────────────────
 
 interface SessionData { userId: number; email: string; username: string }
 const sessions = new Map<string, { data: SessionData; expiresAt: number }>();
+let sessionMaxCount = 50_000;
 
-setInterval(() => {
+function cleanupSessions() {
   const now = Date.now();
-  for (const [id, s] of sessions) { if (now > s.expiresAt) sessions.delete(id); }
-}, 60_000);
+  // Remove expired sessions
+  for (const [id, s] of sessions) {
+    if (now > s.expiresAt) sessions.delete(id);
+  }
+  // If still over limit, remove oldest
+  if (sessions.size > sessionMaxCount) {
+    const entries = [...sessions.entries()].sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+    const toRemove = sessions.size - sessionMaxCount;
+    for (let i = 0; i < toRemove; i++) {
+      sessions.delete(entries[i][0]);
+    }
+  }
+}
+
+setInterval(cleanupSessions, 60_000);
 
 function makeSessionId(secret: string): string {
   const r = randomBytes(32).toString('hex');
@@ -203,12 +282,61 @@ async function discoverDir(dir: string): Promise<Record<string, any>> {
   return modules;
 }
 
+// ─── ETag Helpers ─────────────────────────────────────────────────────────────
+
+function generateETag(html: string): string {
+  return createHash('md5').update(html).digest('hex');
+}
+
+function handleConditionalRequest(req: Request, res: Response, etag: string): boolean {
+  const ifNoneMatch = req.headers['if-none-match'];
+  if (ifNoneMatch === etag) {
+    res.status(304).end();
+    return true;
+  }
+  res.setHeader('ETag', etag);
+  return false;
+}
+
+// ─── Streaming SSR ────────────────────────────────────────────────────────────
+
+function streamSSR(
+  element: React.ReactElement,
+  req: Request,
+  res: Response,
+  pageStart: string,
+  pageEnd: string,
+  cacheKey: string | null,
+  responseCache: SSRResponseCache | null
+): void {
+  res.type('html');
+  res.write(pageStart);
+
+  const { pipe } = renderToPipeableStream(element, {
+    onShellReady() {
+      pipe(res);
+    },
+    onAllReady() {
+      // All content flushed — cache the complete response if caching enabled
+      // (We cache on next request since we can't capture piped output easily)
+    },
+    onError(error: unknown) {
+      console.error('[Reacto] Streaming SSR error:', error);
+      if (!res.headersSent) {
+        res.status(500).end(errorPage(error instanceof Error ? error.message : String(error)));
+      }
+    },
+  });
+}
+
 // ─── Create SSR App ──────────────────────────────────────────────────────────
 
 export interface SSRAppResult {
   app: Express;
   server: Server;
   start: (port?: number) => Promise<void>;
+  /** Clear the SSR response cache */
+  clearCache: () => void;
 }
 
 /**
@@ -223,6 +351,14 @@ export interface SSRAppResult {
 export async function createSSRApp(config: SSRConfig = {}): Promise<SSRAppResult> {
   const root = config.root || resolve('.');
   const secret = config.secret || randomBytes(32).toString('hex');
+  const useStreaming = config.streaming ?? false;
+  const cacheTtl = config.cacheTtl ?? 60;
+  const useCache = cacheTtl > 0;
+  const responseCache = useCache ? new SSRResponseCache(cacheTtl, config.cacheMaxEntries ?? 1000) : null;
+  const useCompression = config.compress ?? true;
+
+  // Apply session limit
+  sessionMaxCount = config.maxSessions ?? 50_000;
 
   // ─── Configure Core ──────────────────────────────────────────────
 
@@ -245,6 +381,20 @@ export async function createSSRApp(config: SSRConfig = {}): Promise<SSRAppResult
   // ─── Express Setup ───────────────────────────────────────────────
 
   const app = express();
+
+  // 1. Compression middleware (gzip/deflate for all responses)
+  if (useCompression) {
+    app.use(compression({
+      filter: (req, res) => {
+        // Don't compress if client doesn't support it
+        if (req.headers['x-no-compression']) return false;
+        // Use default filter for everything else
+        return compression.filter(req, res);
+      },
+      threshold: 1024, // Only compress responses > 1KB
+    }));
+  }
+
   app.use(cookieParser());
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
@@ -314,9 +464,46 @@ export async function createSSRApp(config: SSRConfig = {}): Promise<SSRAppResult
             flash: () => {},
           };
 
+          const cacheKey = `${urlPath}:${req.url}`;
+
+          // Check response cache
+          if (responseCache) {
+            const cached = responseCache.get(cacheKey);
+            if (cached) {
+              // 2. ETag — check If-None-Match
+              if (handleConditionalRequest(req, res, cached.etag)) return;
+              res.setHeader('X-Cache', 'HIT');
+              res.type('html').send(cached.html);
+              return;
+            }
+          }
+
           const element = await meta.fn(ctx, { ...req.params, ...req.query });
+
+          // 3. Streaming SSR or standard renderToString
+          if (useStreaming) {
+            const pageStart = getPageStart('CineLog', ctx.user, config.layout);
+            const pageEnd = getPageEnd();
+            streamSSR(element, req, res, pageStart, pageEnd, cacheKey, responseCache);
+            return;
+          }
+
           const bodyHtml = renderToString(element);
           const pageHtml = wrapLayout(bodyHtml, 'CineLog', ctx.user, config.layout);
+
+          // Cache the rendered response
+          let etag: string;
+          if (responseCache) {
+            const entry = responseCache.set(cacheKey, pageHtml);
+            etag = entry.etag;
+          } else {
+            etag = generateETag(pageHtml);
+          }
+
+          // 2. ETag — check If-None-Match
+          if (handleConditionalRequest(req, res, etag)) return;
+
+          res.setHeader('X-Cache', 'MISS');
           res.type('html').send(pageHtml);
         } catch (error) {
           console.error(`[Reacto] Error rendering ${name}:`, error);
@@ -358,6 +545,21 @@ export async function createSSRApp(config: SSRConfig = {}): Promise<SSRAppResult
     res.json({ user: { id: session.userId, email: session.email, username: session.username } });
   });
 
+  // ─── Cache Stats API ─────────────────────────────────────────────
+
+  app.get('/api/_ssr/cache-stats', (_req, res) => {
+    res.json({
+      enabled: useCache,
+      entries: responseCache?.size ?? 0,
+      maxEntries: config.cacheMaxEntries ?? 1000,
+      ttl: cacheTtl,
+      sessions: sessions.size,
+      maxSessions: sessionMaxCount,
+      streaming: useStreaming,
+      compression: useCompression,
+    });
+  });
+
   // ─── 404 ─────────────────────────────────────────────────────────
 
   app.use((_req, res) => {
@@ -378,7 +580,9 @@ export async function createSSRApp(config: SSRConfig = {}): Promise<SSRAppResult
     });
   };
 
-  return { app, server, start };
+  const clearCache = () => responseCache?.clear();
+
+  return { app, server, start, clearCache };
 }
 
 // ─── HTML Helpers ─────────────────────────────────────────────────────────────
@@ -395,6 +599,24 @@ function wrapLayout(bodyHtml: string, title: string, user: any, layout?: React.F
 <body>
   ${bodyHtml}
   <script src="/client.js"></script>
+</body>
+</html>`;
+}
+
+function getPageStart(title: string, user: any, layout?: React.FC<any>): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${esc(title)}</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>`;
+}
+
+function getPageEnd(): string {
+  return `<script src="/client.js"></script>
 </body>
 </html>`;
 }
