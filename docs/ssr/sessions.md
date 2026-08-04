@@ -4,13 +4,18 @@ Cookie-based session authentication for SSR apps.
 
 ## Setup
 
-```typescript
-import { createSSRApp } from '@reacto-org/ssr';
+Sessions are configured automatically. Override via env vars:
 
-const app = await createSSRApp({
-  secret: process.env.SESSION_SECRET || 'my-secret',
-  maxAge: 7 * 24 * 60 * 60, // 7 days (default)
-});
+```bash
+SECRET=my-secret-key        # Session signing secret (auto-generated if missing)
+SESSION_MAX_AGE=604800      # 7 days in seconds (default)
+MAX_SESSIONS=50000          # Max concurrent sessions (default)
+```
+
+Or CLI flags:
+
+```bash
+reacto runserver --secret my-secret-key
 ```
 
 ## How It Works
